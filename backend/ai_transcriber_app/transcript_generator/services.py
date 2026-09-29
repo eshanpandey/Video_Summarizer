@@ -61,11 +61,35 @@ def extract_video_id(url):
     return match.group(1)
 
 
+def _ytdlp_options(**options):
+    options.update(quiet=True, no_warnings=True)
+    if settings.YOUTUBE_PROXY_URL:
+        options["proxy"] = settings.YOUTUBE_PROXY_URL
+    return options
+
+
 def get_video_title(url):
+    """Look the title up with YouTube's oEmbed endpoint, which works from cloud hosts
+    that YouTube blocks for yt-dlp; fall back to yt-dlp."""
+    import json
+    import urllib.parse
+    import urllib.request
+
+    try:
+        oembed = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(
+            f"https://www.youtube.com/watch?v={extract_video_id(url)}", safe=""
+        )
+        with urllib.request.urlopen(oembed, timeout=10) as response:
+            title = json.load(response).get("title")
+        if title:
+            return title
+    except Exception:
+        logger.info("oEmbed title lookup failed for %s", url, exc_info=True)
+
     import yt_dlp
 
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+        with yt_dlp.YoutubeDL(_ytdlp_options(skip_download=True)) as ydl:
             info = ydl.extract_info(url, download=False)
         return info.get("title") or "Untitled video"
     except Exception:
@@ -119,9 +143,12 @@ def format_segments(segments, block_seconds=30):
 def get_caption_transcript(video_id):
     """Return YouTube's captions as a timestamped transcript, or None if it has none."""
     from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api.proxies import GenericProxyConfig
 
+    proxy = settings.YOUTUBE_PROXY_URL
     try:
-        transcripts = YouTubeTranscriptApi().list(video_id)
+        api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(https_url=proxy) if proxy else None)
+        transcripts = api.list(video_id)
         try:
             transcript = transcripts.find_transcript(["en"])
         except Exception:
@@ -143,12 +170,10 @@ def get_audio_transcript(url):
         raise PipelineError("This video has no captions and ASSEMBLYAI_API_KEY is not set.")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        opts = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(tmp_dir, "audio.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-        }
+        opts = _ytdlp_options(
+            format="bestaudio/best",
+            outtmpl=os.path.join(tmp_dir, "audio.%(ext)s"),
+        )
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
