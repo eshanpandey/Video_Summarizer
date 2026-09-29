@@ -45,10 +45,18 @@ def run(pk):
         _update(pk, video_title=title, stage='Getting the transcript')
 
         transcript = services.get_transcript(url)
-        _update(pk, stage='Writing notes')
+        _update(pk, transcript=transcript, stage='Writing notes')
 
-        notes = services.generate_notes(transcript)
-        _update(pk, generated_content=notes, status=ArticlePost.Status.DONE, stage='')
+        notes = services.generate_notes(transcript).model_dump()
+        _update(
+            pk,
+            generated_content=notes['summary'],
+            key_takeaways=notes['key_takeaways'],
+            chapters=notes['chapters'],
+            quiz=notes['quiz'],
+            status=ArticlePost.Status.DONE,
+            stage='',
+        )
     except services.PipelineError as exc:
         _update(pk, status=ArticlePost.Status.FAILED, error=str(exc), stage='')
     except Exception:

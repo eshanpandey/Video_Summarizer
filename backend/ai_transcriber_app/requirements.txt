@@ -6,3 +6,4 @@ yt-dlp>=2024.8.6
 youtube-transcript-api>=1.0
 assemblyai>=0.30
 google-genai>=1.0
+pydantic>=2

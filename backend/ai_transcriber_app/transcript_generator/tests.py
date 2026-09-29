@@ -28,6 +28,52 @@ class ExtractVideoIdTests(TestCase):
         self.assertEqual(ctx.exception.status, 400)
 
 
+class FormatSegmentsTests(TestCase):
+    def test_groups_into_timestamped_blocks(self):
+        segments = [(0, 'hello'), (10, 'there\n'), (31, 'next'), (3700, 'later')]
+        self.assertEqual(services.format_segments(segments),
+                         '[00:00] hello there\n[00:31] next\n[1:01:40] later')
+
+    def test_skips_empty_text(self):
+        self.assertEqual(services.format_segments([(0, '  '), (5, 'hi')]), '[00:05] hi')
+
+
+class GenerateNotesTests(TestCase):
+    def notes_json(self, **overrides):
+        data = {
+            'summary': 'Para one.\n\nPara two.',
+            'key_takeaways': ['a', 'b'],
+            'chapters': [{'start_seconds': 90, 'title': 'B', 'summary': 'x'},
+                         {'start_seconds': 0, 'title': 'A', 'summary': 'y'}],
+            'quiz': [{'question': 'Q?', 'options': ['1', '2', '3', '4'], 'answer_index': 1, 'explanation': 'e'},
+                     {'question': 'Bad', 'options': ['1', '2'], 'answer_index': 5, 'explanation': 'e'}],
+        }
+        data.update(overrides)
+        return mock.Mock(parsed=None, text=json.dumps(data))
+
+    def test_parses_sorts_and_drops_invalid_quiz(self):
+        with mock.patch.object(services, '_gemini', return_value=self.notes_json()):
+            notes = services.generate_notes('[00:00] hi')
+        self.assertEqual([c.title for c in notes.chapters], ['A', 'B'])
+        self.assertEqual(len(notes.quiz), 1)
+
+    def test_bad_json_is_a_pipeline_error(self):
+        with mock.patch.object(services, '_gemini', return_value=mock.Mock(parsed=None, text='nope')):
+            with self.assertRaises(services.PipelineError):
+                services.generate_notes('[00:00] hi')
+
+    def test_empty_summary_is_a_pipeline_error(self):
+        with mock.patch.object(services, '_gemini', return_value=self.notes_json(summary=' ')):
+            with self.assertRaises(services.PipelineError):
+                services.generate_notes('[00:00] hi')
+
+    @override_settings(GEMINI_API_KEY='')
+    def test_missing_key(self):
+        with self.assertRaises(services.PipelineError) as ctx:
+            services.generate_notes('[00:00] hi')
+        self.assertIn('GEMINI_API_KEY', str(ctx.exception))
+
+
 class GetTranscriptTests(TestCase):
     @mock.patch.object(services, 'get_audio_transcript')
     @mock.patch.object(services, 'get_caption_transcript', return_value='caption text')
@@ -74,7 +120,9 @@ class GenerateTranscriptViewTests(TestCase):
         self.assertEqual(self.post({'link': 'https://example.com'}).status_code, 400)
         self.assertEqual(ArticlePost.objects.count(), 0)
 
-    @mock.patch.object(services, 'generate_notes', return_value='the notes')
+    @mock.patch.object(services, 'generate_notes', return_value=services.Notes(
+        summary='the notes', key_takeaways=['one'], quiz=[],
+        chapters=[services.Chapter(start_seconds=65, title='Intro', summary='s')]))
     @mock.patch.object(services, 'get_transcript', return_value='the transcript')
     @mock.patch.object(services, 'get_video_title', return_value='A video')
     def test_success_saves_article(self, title, transcript, notes):
@@ -86,6 +134,10 @@ class GenerateTranscriptViewTests(TestCase):
         article = ArticlePost.objects.get()
         self.assertEqual((article.user, article.video_title, article.generated_content, article.status),
                          (self.user, 'A video', 'the notes', 'done'))
+        self.assertEqual(article.transcript, 'the transcript')
+        self.assertEqual(article.key_takeaways, ['one'])
+        self.assertEqual(article.chapters_with_links()[0]['url'],
+                         'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=65s')
         notes.assert_called_once_with('the transcript')
 
     @mock.patch.object(services, 'get_transcript', side_effect=services.PipelineError('Transcription failed.'))
@@ -175,15 +227,59 @@ class PageRenderTests(TestCase):
         pending = ArticlePost.objects.create(
             user=self.user, youtube_link='https://youtu.be/a', status='processing', stage='Writing notes')
         done = ArticlePost.objects.create(
-            user=self.user, youtube_link='https://youtu.be/b', video_title='Done one', generated_content='hi')
+            user=self.user, youtube_link='https://youtu.be/dQw4w9WgXcQ', video_title='Done one', generated_content='hi',
+            key_takeaways=['Takeaway <1>'],
+            chapters=[{'start_seconds': 75, 'title': 'Chapter A', 'summary': 'x'}],
+            quiz=[{'question': 'Quiz Q?', 'options': ['a', 'b'], 'answer_index': 0, 'explanation': 'because'}])
         self.assertContains(self.client.get(reverse('index')), 'Summarize')
         listing = self.client.get(reverse('all-scripts'))
         self.assertContains(listing, 'Done one')
         self.assertContains(listing, 'Processing')
         self.assertContains(self.client.get(reverse('full-article', args=[pending.id])), 'Writing notes')
-        self.assertContains(self.client.get(reverse('full-article', args=[done.id])), 'hi')
+        page = self.client.get(reverse('full-article', args=[done.id]))
+        self.assertContains(page, 'Takeaway &lt;1&gt;')
+        self.assertContains(page, 'watch?v=dQw4w9WgXcQ&amp;t=75s')
+        self.assertContains(page, '01:15')
+        self.assertContains(page, 'Quiz Q?')
 
     def test_logout_requires_post(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(reverse('logout')).status_code, 405)
         self.assertEqual(self.client.post(reverse('logout')).status_code, 302)
+
+
+class AskQuestionViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('alice', password='pw-12345-long')
+        self.client.force_login(self.user)
+        self.article = ArticlePost.objects.create(
+            user=self.user, youtube_link='https://youtu.be/dQw4w9WgXcQ', generated_content='s',
+            transcript='[00:00] hello')
+        self.url = reverse('ask-question', args=[self.article.id])
+
+    def ask(self, body):
+        return self.client.post(self.url, data=json.dumps(body), content_type='application/json')
+
+    @mock.patch.object(services, 'answer_question', return_value='They said hello at [00:00].')
+    def test_answers_and_saves(self, answer):
+        response = self.ask({'question': 'What did they say?'})
+        self.assertEqual(response.json()['answer'], 'They said hello at [00:00].')
+        answer.assert_called_once_with('[00:00] hello', 'What did they say?')
+        self.assertEqual(self.article.questions.get().question, 'What did they say?')
+        self.assertContains(self.client.get(reverse('full-article', args=[self.article.id])), 'They said hello')
+
+    def test_validates_question(self):
+        self.assertEqual(self.ask({'question': '  '}).status_code, 400)
+        self.assertEqual(self.ask({'question': 'x' * 1001}).status_code, 400)
+        self.assertEqual(self.ask({}).status_code, 400)
+
+    def test_other_users_article_is_404(self):
+        other = User.objects.create_user('bob', password='pw-12345-long')
+        self.client.force_login(other)
+        self.assertEqual(self.ask({'question': 'hi'}).status_code, 404)
+
+    @mock.patch.object(services, 'answer_question', side_effect=services.PipelineError("Couldn't answer that right now."))
+    def test_error(self, answer):
+        response = self.ask({'question': 'hi'})
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(self.article.questions.count(), 0)

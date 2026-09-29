@@ -11,6 +11,8 @@ from django.views.decorators.http import require_POST
 from . import jobs, services
 from .models import ArticlePost
 
+MAX_QUESTION_LENGTH = 1000
+
 @login_required
 def index(request):
     return render(request, 'index.html')
@@ -114,4 +116,29 @@ def user_logout(request):
 @login_required
 def full_article(request, pk):
     full_article = get_object_or_404(ArticlePost, id=pk, user=request.user)
-    return render(request, 'full-article.html', {'full_article': full_article})
+    return render(request, 'full-article.html', {
+        'full_article': full_article,
+        'chapters': full_article.chapters_with_links(),
+        'questions': full_article.questions.all(),
+    })
+
+
+@login_required
+@require_POST
+def ask_question(request, pk):
+    article = get_object_or_404(ArticlePost, id=pk, user=request.user, status=ArticlePost.Status.DONE)
+    try:
+        question = json.loads(request.body)['question'].strip()
+    except (KeyError, AttributeError, TypeError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid data sent'}, status=400)
+    if not question or len(question) > MAX_QUESTION_LENGTH:
+        return JsonResponse({'error': f'Ask a question of up to {MAX_QUESTION_LENGTH} characters.'}, status=400)
+
+    context = article.transcript or article.generated_content
+    try:
+        answer = services.answer_question(context, question)
+    except services.PipelineError as exc:
+        return JsonResponse({'error': str(exc)}, status=exc.status)
+
+    article.questions.create(question=question, answer=answer)
+    return JsonResponse({'question': question, 'answer': answer})
