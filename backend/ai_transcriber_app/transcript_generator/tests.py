@@ -38,6 +38,18 @@ class FormatSegmentsTests(TestCase):
         self.assertEqual(services.format_segments([(0, '  '), (5, 'hi')]), '[00:05] hi')
 
 
+class ParseTranscriptTests(TestCase):
+    def test_round_trips_formatted_segments(self):
+        transcript = services.format_segments([(0, 'hello'), (31, 'next'), (3700, 'later')])
+        self.assertEqual(services.parse_transcript(transcript),
+                         [(0, 'hello'), (31, 'next'), (3700, 'later')])
+
+    def test_untimed_text_is_kept(self):
+        self.assertEqual(services.parse_transcript('plain text\n[00:05] hi\nmore'),
+                         [(0, 'plain text'), (5, 'hi more')])
+        self.assertEqual(services.parse_transcript(''), [])
+
+
 class GenerateNotesTests(TestCase):
     def notes_json(self, **overrides):
         data = {
@@ -203,6 +215,18 @@ class FullArticleViewTests(TestCase):
         self.client.force_login(self.owner)
         response = self.client.get(reverse('full-article', args=[self.article.id]))
         self.assertContains(response, '&lt;b&gt;hi&lt;/b&gt;')
+
+    def test_embeds_player_with_seekable_transcript(self):
+        self.article.youtube_link = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        self.article.transcript = '[00:00] intro\n[01:05] <i>main</i> part'
+        self.article.chapters = [{'start_seconds': 65, 'title': 'Main', 'summary': 's'}]
+        self.article.save()
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('full-article', args=[self.article.id]))
+        self.assertContains(response, 'youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1')
+        self.assertContains(response, 'data-seconds="65"', count=2)  # chapter + transcript line
+        self.assertContains(response, '&lt;i&gt;main&lt;/i&gt; part')
+        self.assertNotContains(response, 'Full transcript')
 
     def test_other_user_gets_404(self):
         self.client.force_login(self.other)

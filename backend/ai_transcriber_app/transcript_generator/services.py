@@ -80,6 +80,24 @@ def format_timestamp(seconds):
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
 
 
+_TRANSCRIPT_LINE_RE = re.compile(r"^\[(?:(\d+):)?(\d+):(\d{2})\]\s*(.*)$")
+
+
+def parse_transcript(transcript):
+    """Split '[mm:ss] text' lines back into (start_seconds, text) pairs."""
+    lines = []
+    for line in (transcript or "").splitlines():
+        match = _TRANSCRIPT_LINE_RE.match(line.strip())
+        if match:
+            hours, minutes, secs, text = match.groups()
+            lines.append((int(hours or 0) * 3600 + int(minutes) * 60 + int(secs), text))
+        elif line.strip() and lines:
+            lines[-1] = (lines[-1][0], f"{lines[-1][1]} {line.strip()}")
+        elif line.strip():
+            lines.append((0, line.strip()))
+    return lines
+
+
 def format_segments(segments, block_seconds=30):
     """Merge (start_seconds, text) segments into '[mm:ss] text' lines of ~block_seconds each."""
     lines, block_start, block_text = [], None, []

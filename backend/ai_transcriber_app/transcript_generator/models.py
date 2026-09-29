@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.db import models
 
-from .services import PipelineError, extract_video_id, format_timestamp
+from .services import PipelineError, extract_video_id, format_timestamp, parse_transcript
 
 
 class ArticlePost(models.Model):
@@ -54,6 +54,11 @@ class ArticlePost(models.Model):
             for chapter in self.chapters
         ]
 
+    def transcript_lines(self):
+        return [
+            {'seconds': seconds, 'timestamp': format_timestamp(seconds), 'text': text}
+            for seconds, text in parse_transcript(self.transcript)
+        ]
 
     def to_markdown(self):
         lines = [f'# {self}', '', f'Video: {self.youtube_link}', '']

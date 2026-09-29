@@ -157,6 +157,7 @@ def full_article(request, pk):
     return render(request, 'full-article.html', {
         'full_article': full_article,
         'chapters': full_article.chapters_with_links(),
+        'transcript_lines': full_article.transcript_lines(),
         'questions': full_article.questions.all(),
     })
 
