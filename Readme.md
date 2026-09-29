@@ -4,12 +4,12 @@ Video Summarizer is a Django web application that allows users to enter YouTube 
 
 ## Features
 
-- User authentication (sign up, log in)
-- Enter YouTube video URL
-- Audio transcription using AssemblyAI
-- Note generation from transcription using Gemini
-- Save and view notes
-- User-friendly interface
+- Paste a YouTube link and get notes: a readable summary, key takeaways, timestamped chapters that jump to that moment in the video, and a short quiz
+- Ask questions about a video and get answers grounded in its transcript
+- Videos process in the background with live progress, so long videos don't time out and you can leave the page
+- My notes: search across notes and transcripts, rename, delete, retry failed videos, and export any note as Markdown
+- Uses YouTube captions when available (fast and free) and falls back to AssemblyAI transcription for videos without them
+- Sign up and log in, dark mode
 
 ## Use Cases
 
@@ -25,44 +25,47 @@ Video Summarizer is a Django web application that allows users to enter YouTube 
 - AssemblyAI (Speech-to-Text API)
 - Gemini (Text Summarization API)
 - HTML, CSS, JavaScript (Front-end)
-- PostgreSQL (Database hosted on fl0.com)
+- SQLite locally, or PostgreSQL via `DATABASE_URL`
 
 ## Installation
 
-1. Clone the repository:
-
 ```
-git clone https://github.com/your-username/video-summarizer.git
-```
-
-2. Navigate to the project directory:
-
-```
-cd video-summarizer
-```
-
-3. Create a virtual environment and activate it:
-
-```
+git clone https://github.com/eshanpandey/Video_Summarizer.git
+cd Video_Summarizer/backend/ai_transcriber_app
 python -m venv env
 source env/bin/activate  # On Windows, use `env\Scripts\activate`
-```
-
-4. Install the required dependencies:
-
-```
 pip install -r requirements.txt
-```
-
-5. Set up the necessary environment variables for AssemblyAI and Gemini API keys, as well as the PostgreSQL database connection details (hosted on fl0.com).
-
-6. Run the Django development server:
-
-```
+cp .env.example .env     # then add your GEMINI_API_KEY (and optionally ASSEMBLYAI_API_KEY)
+python manage.py migrate
 python manage.py runserver
 ```
 
-7. Open your web browser and navigate to `http://localhost:8000` to access the Video Summarizer app.
+Open `http://localhost:8000`. With no `DATABASE_URL` set the app uses a local SQLite file; set `DATABASE_URL` to use Postgres.
+
+Transcripts come from the video's YouTube captions when available. Videos without captions are downloaded with yt-dlp and transcribed with AssemblyAI, which needs `ASSEMBLYAI_API_KEY`.
+
+Run the tests with `python manage.py test`.
+
+### Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | (required) | Notes and Q&A |
+| `ASSEMBLYAI_API_KEY` | empty | Transcribing videos that have no captions |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model to use |
+| `DATABASE_URL` | local SQLite | e.g. `postgres://user:pass@host:5432/db` |
+| `DJANGO_SECRET_KEY` | dev-only key | Required when `DJANGO_DEBUG=false` |
+| `DJANGO_DEBUG` | `true` | Set `false` in production |
+| `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames |
+| `JOB_WORKERS` | `2` | Videos processed at the same time |
+
+## Deployment
+
+**Docker:** `docker compose up --build` from `backend/ai_transcriber_app` runs the app with Postgres on http://localhost:8000 (put your API keys in `.env` first).
+
+**Render (one click):** the repo includes a `render.yaml` Blueprint. On render.com choose New > Blueprint, pick this repository, and enter `GEMINI_API_KEY` when prompted. It creates the web service and a Postgres database.
+
+Summaries run in a thread pool inside the web process, so the Docker image runs a single Gunicorn worker with several threads. A job interrupted by a restart is marked failed and can be retried from its page.
 
 ## Usage
 

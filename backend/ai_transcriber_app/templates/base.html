@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Summarizer AI{% endblock %}</title>
+  <script>
+    // Apply the saved theme before paint to avoid a flash.
+    try {
+      if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+    } catch (e) {}
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
+  <style>
+    .spinner { width: 1.25rem; height: 1.25rem; border: 3px solid #10b981; border-right-color: transparent; border-radius: 9999px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen flex flex-col bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100 font-sans antialiased">
+  <nav class="bg-gray-900 text-white border-b border-gray-800">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      <a href="{% url 'index' %}" class="text-xl font-bold">Summarizer AI</a>
+      <div class="flex items-center gap-4 text-sm">
+        {% if user.is_authenticated %}
+          <a href="{% url 'index' %}" class="hover:underline">New</a>
+          <a href="{% url 'all-scripts' %}" class="hover:underline">My notes</a>
+          <form action="{% url 'logout' %}" method="post" class="inline">{% csrf_token %}<button class="hover:underline">Log out</button></form>
+        {% else %}
+          <a href="{% url 'login' %}" class="hover:underline">Log in</a>
+          <a href="{% url 'signup' %}" class="hover:underline">Sign up</a>
+        {% endif %}
+        <button id="themeToggle" type="button" class="rounded-full px-2 py-1 bg-gray-700 hover:bg-gray-600" aria-label="Toggle dark mode">&#9788;</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="flex-grow w-full max-w-4xl mx-auto px-4 py-8">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="mb-4 rounded-md px-4 py-2 {% if message.tags == 'error' %}bg-red-100 text-red-800{% else %}bg-emerald-100 text-emerald-800{% endif %}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-sm text-gray-500 py-6">
+    <a href="https://github.com/eshanpandey/Video_Summarizer" class="hover:underline">Video Summarizer on GitHub</a>
+  </footer>
+
+  <script>
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+    const CSRF_TOKEN = '{{ csrf_token }}';
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

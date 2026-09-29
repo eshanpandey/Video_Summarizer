@@ -1,0 +1,28 @@
+# Render Blueprint: New > Blueprint on render.com, pick this repo, then set
+# GEMINI_API_KEY (and optionally ASSEMBLYAI_API_KEY) when prompted.
+services:
+  - type: web
+    name: video-summarizer
+    runtime: docker
+    rootDir: backend/ai_transcriber_app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: video-summarizer-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+
+databases:
+  - name: video-summarizer-db
+    plan: free

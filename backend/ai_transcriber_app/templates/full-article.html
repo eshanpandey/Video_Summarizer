@@ -1,58 +1,177 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transcript Details</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
-
-
-</head>
-<body class="bg-gray-100 font-sans antialiased">
-  <!-- Navbar -->
-  <nav class="bg-gray-900 dark:bg-gray-800 p-4 text-white flex justify-between">
-    <div>
-      <h1 class="text-3xl font-bold">Summarizer AI</h1>
+{% extends 'base.html' %}
+{% block title %}{{ full_article }} · Summarizer AI{% endblock %}
+{% block content %}
+<article class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+  <div class="flex items-start justify-between gap-4">
+    <h1 id="titleText" class="text-2xl font-semibold">{{ full_article }}</h1>
+    <div class="flex items-center gap-3 text-sm shrink-0">
+      {% if full_article.status == 'done' %}
+        <a href="{% url 'export-article' full_article.id %}" class="text-emerald-600 hover:underline">Export .md</a>
+      {% endif %}
+      <button type="button" id="renameToggle" class="text-emerald-600 hover:underline">Rename</button>
+      <form action="{% url 'delete-article' full_article.id %}" method="post" onsubmit="return confirm('Delete these notes?');">
+        {% csrf_token %}<button class="text-red-600 hover:underline">Delete</button>
+      </form>
     </div>
-    <div class="flex items-center">
-      <a href="" class="text-white hover:underline mx-4">Saved Transcripts</a>
-      <a href="{% url 'logout' %}" class="text-white hover:underline">Logout</a>
-      <!-- Dark Mode Button -->
-      <button id="darkModeToggle" class="bg-gray-700 dark:bg-yellow-300 text-white dark:text-gray-800 rounded-full px-3 py-1 transition-colors duration-300">
-        <svg id="sunIcon" class="w-6 h-6 dark:hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-          <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
-        </svg>
-        <svg id="moonIcon" class="w-6 h-6 hidden dark:inline-block" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
-        </svg>
-      </button>
-    </div>
-  </nav>
+  </div>
+  <form id="renameForm" action="{% url 'rename-article' full_article.id %}" method="post" class="hidden mt-3 flex gap-2">
+    {% csrf_token %}
+    <input name="title" value="{{ full_article.video_title }}" maxlength="300" required class="flex-grow rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2">
+    <button class="rounded-md bg-emerald-600 text-white px-3 hover:bg-emerald-700">Save</button>
+  </form>
+  <p class="text-sm text-gray-500 mt-1">
+    <a href="{{ full_article.youtube_link }}" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Watch on YouTube</a>
+    · {{ full_article.created_at|date:"M j, Y" }}
+  </p>
 
-    <!-- Main Content -->
-    <div class="container mx-auto mt-10 px-4 sm:px-0">
-        <div class="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow-md">
-    <section>
-        <h2 class="text-xl mb-4 font-semibold">Full Summary</h2>
-        <div class="border border-gray-300 p-4 rounded-lg">
-            <h3 class="text-lg font-semibold">{{full_article.video_title}}</h3>
-            <p>{{full_article.generated_content}}</p>
-            <hr class="my-4 border-gray-300"></hr>
-            <h4 class="text-lg font-semibold">{{full_article.video_title}}</h4>
-            <p class="text-gray-700">{{full_article.video_title}}</p>
-            <h4 class="text-lg font-semibold mt-4 ">YouTube Link</h4>
-            <a href="#" class="text-blue-600 hover:underline">{{full_article.youtube_link}}</a>
-        </div>
+  {% if full_article.status == 'done' %}
+    {% if full_article.key_takeaways %}
+      <section class="mt-6 rounded-md bg-emerald-50 dark:bg-emerald-900/30 p-4">
+        <h2 class="font-semibold mb-2">Key takeaways</h2>
+        <ul class="list-disc pl-5 space-y-1">
+          {% for point in full_article.key_takeaways %}<li>{{ point }}</li>{% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="mt-6">
+      <h2 class="text-lg font-semibold mb-2">Summary</h2>
+      <div class="leading-relaxed space-y-4">{{ full_article.generated_content|linebreaks }}</div>
     </section>
-    
-    <footer>
-        <div class="text-center p-4 text-black mt-8">
-            <div class="content has-text-centered">
-                <a href="https://github.com/eshanpandey"><i class="fa fa-github" style="font-size:36px"></i></a>
+
+    {% if chapters %}
+      <section class="mt-8">
+        <h2 class="text-lg font-semibold mb-2">Chapters</h2>
+        <ol class="space-y-3">
+          {% for chapter in chapters %}
+            <li>
+              <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer" class="font-mono text-sm text-emerald-600 hover:underline">{{ chapter.timestamp }}</a>
+              <span class="font-medium ml-2">{{ chapter.title }}</span>
+              <p class="text-sm text-gray-600 dark:text-gray-400 ml-14">{{ chapter.summary }}</p>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% endif %}
+
+    {% if full_article.quiz %}
+      <section class="mt-8">
+        <h2 class="text-lg font-semibold mb-2">Test yourself</h2>
+        <div class="space-y-5">
+          {% for q in full_article.quiz %}
+            <div class="quiz" data-answer="{{ q.answer_index }}">
+              <p class="font-medium">{{ forloop.counter }}. {{ q.question }}</p>
+              <div class="mt-2 grid gap-2">
+                {% for option in q.options %}
+                  <button type="button" data-index="{{ forloop.counter0 }}" class="quiz-option text-left rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700">{{ option }}</button>
+                {% endfor %}
+              </div>
+              <p class="quiz-explanation hidden mt-2 text-sm text-gray-600 dark:text-gray-400">{{ q.explanation }}</p>
             </div>
+          {% endfor %}
         </div>
-    </footer>
-    
-</body>
-</html>
+      </section>
+    {% endif %}
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold mb-2">Ask about this video</h2>
+      <div id="qaList" class="space-y-4 mb-4">
+        {% for item in questions %}
+          <div><p class="font-medium">{{ item.question }}</p><p class="whitespace-pre-line text-gray-700 dark:text-gray-300">{{ item.answer }}</p></div>
+        {% endfor %}
+      </div>
+      <form id="askForm" class="flex flex-col sm:flex-row gap-3" data-url="{% url 'ask-question' full_article.id %}">
+        <input id="askInput" required maxlength="1000" placeholder="What did they say about...?" class="flex-grow rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2">
+        <button id="askButton" class="rounded-md bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700 disabled:opacity-50">Ask</button>
+      </form>
+      <p id="askError" class="hidden mt-2 text-red-600"></p>
+    </section>
+
+    {% if full_article.transcript %}
+      <details class="mt-8">
+        <summary class="cursor-pointer font-semibold">Full transcript</summary>
+        <div class="mt-3 whitespace-pre-line text-sm text-gray-700 dark:text-gray-300">{{ full_article.transcript }}</div>
+      </details>
+    {% endif %}
+  {% elif full_article.status == 'failed' %}
+    <p class="mt-6 text-red-600">{{ full_article.error|default:"Processing failed." }}</p>
+    <form action="{% url 'retry-article' full_article.id %}" method="post" class="mt-3">
+      {% csrf_token %}<button class="rounded-md bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700">Try again</button>
+    </form>
+  {% else %}
+    <div id="pending" class="mt-6 flex items-center gap-3" data-status-url="{% url 'job-status' full_article.id %}">
+      <div class="spinner"></div><span>{{ full_article.stage|default:"Processing" }}. This page refreshes when it's ready.</span>
+    </div>
+  {% endif %}
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('renameToggle').addEventListener('click', () => {
+    document.getElementById('renameForm').classList.toggle('hidden');
+  });
+</script>
+{% if not full_article.is_finished %}
+<script>
+  const statusUrl = document.getElementById('pending').dataset.statusUrl;
+  setInterval(async () => {
+    try {
+      const job = await (await fetch(statusUrl)).json();
+      if (job.status === 'done' || job.status === 'failed') location.reload();
+    } catch (e) {}
+  }, 4000);
+</script>
+{% elif full_article.status == 'done' %}
+<script>
+  document.querySelectorAll('.quiz').forEach((quiz) => {
+    const answer = Number(quiz.dataset.answer);
+    quiz.querySelectorAll('.quiz-option').forEach((button) => {
+      button.addEventListener('click', () => {
+        quiz.querySelectorAll('.quiz-option').forEach((b) => {
+          b.disabled = true;
+          if (Number(b.dataset.index) === answer) b.classList.add('border-emerald-500', 'bg-emerald-50', 'dark:bg-emerald-900/30');
+        });
+        if (Number(button.dataset.index) !== answer) button.classList.add('border-red-500', 'bg-red-50', 'dark:bg-red-900/30');
+        quiz.querySelector('.quiz-explanation').classList.remove('hidden');
+      });
+    });
+  });
+
+  const askForm = document.getElementById('askForm');
+  const askInput = document.getElementById('askInput');
+  const askButton = document.getElementById('askButton');
+  const askError = document.getElementById('askError');
+  askForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    askError.classList.add('hidden');
+    askButton.disabled = true;
+    askButton.textContent = 'Thinking...';
+    try {
+      const response = await fetch(askForm.dataset.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ question: askInput.value }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      const item = document.createElement('div');
+      const q = document.createElement('p');
+      q.className = 'font-medium';
+      q.textContent = data.question;
+      const a = document.createElement('p');
+      a.className = 'whitespace-pre-line text-gray-700 dark:text-gray-300';
+      a.textContent = data.answer;
+      item.append(q, a);
+      document.getElementById('qaList').append(item);
+      askInput.value = '';
+    } catch (e) {
+      askError.textContent = e.message || 'Something went wrong.';
+      askError.classList.remove('hidden');
+    }
+    askButton.disabled = false;
+    askButton.textContent = 'Ask';
+  });
+</script>
+{% endif %}
+{% endblock %}

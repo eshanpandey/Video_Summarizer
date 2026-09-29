@@ -1,183 +1,231 @@
-from django.shortcuts import render
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
-from django.shortcuts import redirect
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from django.conf import settings
 import json
-from pytube import YouTube
-import os
-import assemblyai as aa
-from dotenv import load_dotenv
-import requests
-import google.generativeai as genai
-from .models import ArticlePost
-# Create your views here.
-load_dotenv()
 
-ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
+from django.views.decorators.http import require_POST
+
+from . import jobs, services
+from .models import ArticlePost
+
+MAX_QUESTION_LENGTH = 1000
+NOTES_PER_PAGE = 20
+
+
+def healthz(request):
+    return HttpResponse('ok', content_type='text/plain')
+
 
 @login_required
 def index(request):
     return render(request, 'index.html')
 
-def user_login(request):
-    if request.method =='POST':
-      username=request.POST['username']
-      password=request.POST['password'] 
 
-      user = authenticate(request,username=username,password=password)
-      if user is not None:
-          login(request,user)
-          return redirect('/')
-      else:
-            error_message = "No such user found recheck credentials"
-            return render(request, 'login.html', {'error_message': error_message})
-    return render(request,'login.html')
+def _safe_next(request):
+    next_url = request.POST.get('next') or request.GET.get('next')
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return reverse('index')
+
+
+def user_login(request):
+    context = {'next': request.POST.get('next') or request.GET.get('next', '')}
+    if request.method == 'POST':
+        user = authenticate(
+            request,
+            username=request.POST.get('username', ''),
+            password=request.POST.get('password', ''),
+        )
+        if user is not None:
+            login(request, user)
+            return redirect(_safe_next(request))
+        context['error_message'] = 'Wrong username or password.'
+    return render(request, 'login.html', context)
+
 
 def user_signup(request):
     if request.method == 'POST':
-        username = request.POST['username']
-        email = request.POST['email']
-        password = request.POST['password']
-        repeatPassword = request.POST['repeatPassword']
+        username = request.POST.get('username', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+        repeat_password = request.POST.get('repeatPassword', '')
 
-        if password == repeatPassword:
-            try:
-                user = User.objects.create_user(username, email, password)
-                user.save()
-                login(request, user)
-                return redirect('/')
-            except:
-                error_message = 'Error creating account'
-                return render(request, 'signup.html', {'error_message':error_message})
+        error_message = None
+        if not username:
+            error_message = 'Choose a username.'
+        elif User.objects.filter(username__iexact=username).exists():
+            error_message = 'That username is taken.'
+        elif password != repeat_password:
+            error_message = 'Passwords do not match.'
         else:
-            error_message = 'Password do not match'
-            return render(request, 'signup.html', {'error_message':error_message})
-        
+            try:
+                validate_password(password, User(username=username, email=email))
+            except ValidationError as exc:
+                error_message = ' '.join(exc.messages)
+
+        if error_message:
+            return render(request, 'signup.html', {'error_message': error_message, 'username': username, 'email': email})
+
+        user = User.objects.create_user(username, email, password)
+        login(request, user)
+        return redirect('index')
+
     return render(request, 'signup.html')
 
-# @csrf_exempt
-# def generate_transcript(request):
-#     if request.method=='POST':
-#         try:
-#             data=json.loads(request.body)
-#             yt_link = data['link']
-#         except (KeyError, json.JSONDecodeError):
-#             return JsonResponse({'error':'Invalid data sent'}, status=400)
-        
-#         title=yt_title(yt_link)
-#         #getting the transcript from the audio file
-#         transcript=get_transcription(yt_link)
-#         if not transcript:
-#             return JsonResponse({'error':'Transcription failed'}, status=500)
-        
-#         summary_content=generate_article(transcript)
-#         if not summary_content:
-#             return JsonResponse({'error':'Article generation failed'}, status=500)
-        
 
-#         return JsonResponse({'content':summary_content})
-
-
-#     else:
-#         return JsonResponse({'error':'Ivalid request method'}, status=405)
-
-
-prompt="""You are a notes maker You will be taking the transcript text
-and summarizing the entire video's crux without making it look like a video but a blog article
-and providing the important topics and their explanation in points use simple text only like 
- try to write simple paragraphs and points.
- make the language easy to understand for everyone. please generate only simple text with no html tags or any other formatting."""
-
-
-@csrf_exempt
+@login_required
+@require_POST
 def generate_transcript(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            yt_link = data['link']
-        except (KeyError, json.JSONDecodeError):
-            return JsonResponse({'error': 'Invalid data sent'}, status=400)
+    try:
+        data = json.loads(request.body)
+        yt_link = data['link'].strip()
+    except (KeyError, AttributeError, TypeError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid data sent'}, status=400)
+
+    try:
+        services.extract_video_id(yt_link)
+    except services.PipelineError as exc:
+        return JsonResponse({'error': str(exc)}, status=exc.status)
+
+    article = ArticlePost.objects.create(
+        user=request.user,
+        youtube_link=yt_link,
+        status=ArticlePost.Status.PENDING,
+        stage='Queued',
+    )
+    jobs.enqueue(article)
+    article.refresh_from_db()
+
+    return JsonResponse(job_payload(article), status=202)
 
 
-        # getting video title
-        title = yt_title(yt_link)
-
-        # getting transcript for the video
-        transcription = get_transcription(yt_link)
-        if not transcription:
-            return JsonResponse({'error': " Failed to get transcript"}, status=500)
+@login_required
+def job_status(request, pk):
+    article = get_object_or_404(ArticlePost, id=pk, user=request.user)
+    return JsonResponse(job_payload(jobs.fail_if_stale(article)))
 
 
-       
-        article_content = generate_article(transcription, prompt)
-        if not article_content:
-            return JsonResponse({'error': " Failed to generate blog article"}, status=500)
-
-        # save article to database
-        new_article_post = ArticlePost.objects.create(
-            user=request.user,
-            video_title=title,
-            youtube_link=yt_link,
-            generated_content=article_content,
-        )
-        new_article_post.save()
-
-        # return blog article as a response
-        return JsonResponse({'content': article_content})
-    else:
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
-
+def job_payload(article):
+    payload = {
+        'id': article.id,
+        'status': article.status,
+        'stage': article.stage,
+        'title': article.video_title,
+        'status_url': reverse('job-status', args=[article.id]),
+        'article_url': reverse('full-article', args=[article.id]),
+    }
+    if article.status == ArticlePost.Status.DONE:
+        payload['content'] = article.generated_content
+    if article.status == ArticlePost.Status.FAILED:
+        payload['error'] = article.error
+    return payload
 
 
 @login_required
 def all_scripts(request):
-    articles=ArticlePost.objects.filter(user=request.user)
-    return render(request,'all-scripts.html',{'articles': articles})   
+    articles = ArticlePost.objects.filter(user=request.user)
+    query = request.GET.get('q', '').strip()
+    if query:
+        articles = articles.filter(
+            Q(video_title__icontains=query)
+            | Q(generated_content__icontains=query)
+            | Q(transcript__icontains=query)
+        )
+    page = Paginator(articles, NOTES_PER_PAGE).get_page(request.GET.get('page'))
+    return render(request, 'all-scripts.html', {'page': page, 'articles': page.object_list, 'query': query})
 
 
+@require_POST
 def user_logout(request):
     logout(request)
     return redirect('/')
 
 
-def yt_title(link):
-    yt=YouTube(link)
-    title=yt.title
-    return title
-
-def get_transcription(link):
-    audio_file=download_audio(link)
-    aa.settings.api_key= ASSEMBLYAI_API_KEY
-    transcriber=aa.Transcriber()
-    transcript=transcriber.transcribe(audio_file)
-    os.remove(audio_file)
-    return transcript.text
+@login_required
+def full_article(request, pk):
+    full_article = get_object_or_404(ArticlePost, id=pk, user=request.user)
+    return render(request, 'full-article.html', {
+        'full_article': full_article,
+        'chapters': full_article.chapters_with_links(),
+        'questions': full_article.questions.all(),
+    })
 
 
+@login_required
+@require_POST
+def ask_question(request, pk):
+    article = get_object_or_404(ArticlePost, id=pk, user=request.user, status=ArticlePost.Status.DONE)
+    try:
+        question = json.loads(request.body)['question'].strip()
+    except (KeyError, AttributeError, TypeError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid data sent'}, status=400)
+    if not question or len(question) > MAX_QUESTION_LENGTH:
+        return JsonResponse({'error': f'Ask a question of up to {MAX_QUESTION_LENGTH} characters.'}, status=400)
 
-def download_audio(link):
-    yt = YouTube(link)
-    video = yt.streams.filter(only_audio=True).first()
-    out_file = video.download(output_path=settings.MEDIA_ROOT)
-    base, ext = os.path.splitext(out_file)
-    new_file = base + '.mp3'
-    os.rename(out_file, new_file)
-    return new_file
+    context = article.transcript or article.generated_content
+    try:
+        answer = services.answer_question(context, question)
+    except services.PipelineError as exc:
+        return JsonResponse({'error': str(exc)}, status=exc.status)
+
+    article.questions.create(question=question, answer=answer)
+    return JsonResponse({'question': question, 'answer': answer})
 
 
-def generate_article(transcript,prompt):
- model=genai.GenerativeModel("gemini-pro")
- response=model.generate_content(prompt+transcript)
- return response.text
 
-def full_article(request,pk):
-    full_article=ArticlePost.objects.get(id=pk)
-    if request.user == full_article.user:
-        return render (request,'full-article.html',{'full_article': full_article})
-    else:
-        return redirect('/')
+def _own_article(request, pk):
+    return get_object_or_404(ArticlePost, id=pk, user=request.user)
+
+
+@login_required
+@require_POST
+def rename_article(request, pk):
+    article = _own_article(request, pk)
+    title = request.POST.get('title', '').strip()[:300]
+    if title:
+        article.video_title = title
+        article.save(update_fields=['video_title', 'updated_at'])
+        messages.success(request, 'Renamed.')
+    return redirect('full-article', pk=article.id)
+
+
+@login_required
+@require_POST
+def delete_article(request, pk):
+    article = _own_article(request, pk)
+    article.delete()
+    messages.success(request, f'Deleted "{article}".')
+    return redirect('all-scripts')
+
+
+@login_required
+@require_POST
+def retry_article(request, pk):
+    article = _own_article(request, pk)
+    if article.status == ArticlePost.Status.FAILED:
+        article.status = ArticlePost.Status.PENDING
+        article.stage = 'Queued'
+        article.error = ''
+        article.save(update_fields=['status', 'stage', 'error', 'updated_at'])
+        jobs.enqueue(article)
+    return redirect('full-article', pk=article.id)
+
+
+@login_required
+def export_article(request, pk):
+    article = _own_article(request, pk)
+    if article.status != ArticlePost.Status.DONE:
+        raise Http404
+    response = HttpResponse(article.to_markdown(), content_type='text/markdown; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{slugify(str(article))[:80] or "notes"}.md"'
+    return response

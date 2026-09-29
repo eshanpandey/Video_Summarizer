@@ -1,59 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>All Transcripts</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
-  
-</head>
-<body class="bg-gray-100 font-sans anti">
-    <nav class="bg-gray-900 dark:bg-gray-800 p-4 text-white flex justify-between">
-        <div>
-          <h1 class="text-3xl font-bold">Summarizer AI</h1>
-        </div>
-        <div class="flex items-center">
-          <a href="" class="text-white hover:underline mx-4">Saved Transcripts</a>
-          <a href="" class="text-white hover:underline">Logout</a>
-          <!-- Dark Mode Button -->
-          <button id="darkModeToggle" class="bg-gray-700 dark:bg-yellow-300 text-white dark:text-gray-800 rounded-full px-3 py-1 transition-colors duration-300">
-            <svg id="sunIcon" class="w-6 h-6 dark:hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-              <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
-            </svg>
-            <svg id="moonIcon" class="w-6 h-6 hidden dark:inline-block" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
-            </svg>
-          </button>
-        </div>
-      </nav>
-
-    <!-- Main Content -->
-    <div class="container mx-auto mt-10 px-4 sm:px-0">
-        <div class="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow-md">
-    <section>
-        <h2 class="text-xl mb-4 font-semibold ">All Transcripts</h2>
-        <div class="space-y-4">
-
-          {% for article in articles reversed %}
-          <a href="full-article/{{article.id}}">
-           <div class="border border-gray-300 p-4 rounded-lg">
-            <h3 class="text-lg font-semibold" >{{article.video_title}}</h3>
-            <p>{{article.generated_content|truncatechars:80}}</p>
-           </div>
-           </a>
-           {% endfor %}
-        </div>
-    </section>
+{% extends 'base.html' %}
+{% block title %}My notes · Summarizer AI{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+  <h1 class="text-2xl font-semibold">My notes</h1>
+  <form method="get" class="flex gap-2">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search notes and transcripts" class="rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2 text-sm w-64">
+    <button class="rounded-md bg-emerald-600 text-white px-3 text-sm hover:bg-emerald-700">Search</button>
+  </form>
 </div>
+<div class="space-y-3">
+  {% for article in articles %}
+    <a href="{% url 'full-article' article.id %}" class="block bg-white dark:bg-gray-800 p-4 rounded-lg shadow hover:ring-2 hover:ring-emerald-500">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="font-semibold">{{ article }}</h2>
+        {% if article.status != 'done' %}
+          <span class="text-xs rounded-full px-2 py-0.5 {% if article.status == 'failed' %}bg-red-100 text-red-800{% else %}bg-amber-100 text-amber-800{% endif %}">{{ article.get_status_display }}</span>
+        {% endif %}
+      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">{{ article.generated_content|truncatechars:140 }}</p>
+      <p class="text-xs text-gray-500 mt-2">{{ article.created_at|date:"M j, Y" }}</p>
+    </a>
+  {% empty %}
+    {% if query %}
+      <p class="text-gray-600 dark:text-gray-400">No notes match "{{ query }}". <a href="{% url 'all-scripts' %}" class="text-emerald-600 hover:underline">Show all</a></p>
+    {% else %}
+      <p class="text-gray-600 dark:text-gray-400">No notes yet. <a href="{% url 'index' %}" class="text-emerald-600 hover:underline">Summarize your first video</a>.</p>
+    {% endif %}
+  {% endfor %}
 </div>
-    <footer>
-        <div class="text-center p-4 text-black mt-8">
-            <div class="content has-text-centered">
-              
-                <a href="https://github.com/eshanpandey"><i class="fa fa-github" style="font-size:36px"></i></a>
-            </div>
-        </div>
-    </footer>
-</body>
-</html>
+
+{% if page.has_other_pages %}
+  <nav class="flex justify-between items-center mt-6 text-sm">
+    {% if page.has_previous %}<a href="?{% if query %}q={{ query|urlencode }}&amp;{% endif %}page={{ page.previous_page_number }}" class="text-emerald-600 hover:underline">&larr; Newer</a>{% else %}<span></span>{% endif %}
+    <span class="text-gray-500">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{% if query %}q={{ query|urlencode }}&amp;{% endif %}page={{ page.next_page_number }}" class="text-emerald-600 hover:underline">Older &rarr;</a>{% else %}<span></span>{% endif %}
+  </nav>
+{% endif %}
+{% endblock %}
