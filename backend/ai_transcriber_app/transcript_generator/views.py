@@ -93,9 +93,18 @@ def generate_transcript(request):
         return JsonResponse({'error': 'Invalid data sent'}, status=400)
 
     try:
-        services.extract_video_id(yt_link)
+        video_id = services.extract_video_id(yt_link)
     except services.PipelineError as exc:
         return JsonResponse({'error': str(exc)}, status=exc.status)
+
+    # Already have (or are making) notes for this video: open those instead of a duplicate.
+    existing = (
+        ArticlePost.objects.filter(user=request.user, video_id=video_id)
+        .exclude(status=ArticlePost.Status.FAILED)
+        .first()
+    )
+    if existing and jobs.fail_if_stale(existing).status != ArticlePost.Status.FAILED:
+        return JsonResponse({**job_payload(existing), 'existing': True})
 
     article = ArticlePost.objects.create(
         user=request.user,

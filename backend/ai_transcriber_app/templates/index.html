@@ -44,7 +44,7 @@
 
   // Model output is plain text: always render it as text, never as HTML.
   function showResult(job) {
-    document.getElementById('resultTitle').textContent = job.title || 'Notes';
+    document.getElementById('resultTitle').textContent = (job.title || 'Notes') + (job.existing ? ' (already in My notes)' : '');
     document.getElementById('resultContent').textContent = job.content;
     document.getElementById('resultLink').href = job.article_url;
     show(progress, false);

@@ -169,6 +169,57 @@ class GenerateTranscriptViewTests(TestCase):
         self.assertEqual(response.json()['error'], 'Something went wrong.')
 
 
+@override_settings(JOBS_RUN_SYNC=True)
+class ReuseResultsTests(TestCase):
+    url = reverse('generate-transcript')
+    link = 'https://youtu.be/dQw4w9WgXcQ'
+
+    def setUp(self):
+        self.alice = User.objects.create_user('alice', password='pw-12345-long')
+        self.bob = User.objects.create_user('bob', password='pw-12345-long')
+        self.saved = ArticlePost.objects.create(
+            user=self.alice, video_title='Renamed by Alice', youtube_link='https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            generated_content='saved notes', transcript='[00:00] saved', key_takeaways=['k'],
+            chapters=[{'start_seconds': 0, 'title': 'A', 'summary': 's'}], quiz=[])
+        self.saved.questions.create(question='private?', answer='yes')
+
+    def post(self, user):
+        self.client.force_login(user)
+        return self.client.post(self.url, data=json.dumps({'link': self.link}), content_type='application/json')
+
+    def test_video_id_is_stored(self):
+        self.assertEqual(self.saved.video_id, 'dQw4w9WgXcQ')
+
+    @mock.patch.object(services, 'generate_notes')
+    @mock.patch.object(services, 'get_transcript')
+    @mock.patch.object(services, 'get_video_title', return_value='Original title')
+    def test_reuses_another_users_notes(self, title, transcript, notes):
+        response = self.post(self.bob)
+        self.assertEqual(response.json()['status'], 'done')
+        transcript.assert_not_called()
+        notes.assert_not_called()
+        article = ArticlePost.objects.get(user=self.bob)
+        self.assertEqual((article.video_title, article.generated_content, article.transcript, article.key_takeaways),
+                         ('Original title', 'saved notes', '[00:00] saved', ['k']))
+        self.assertEqual(article.questions.count(), 0)
+
+    @mock.patch.object(jobs, 'run')
+    def test_same_user_gets_existing_notes(self, run):
+        response = self.post(self.alice)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.json()['id'], response.json()['existing']), (self.saved.id, True))
+        self.assertEqual(ArticlePost.objects.count(), 1)
+        run.assert_not_called()
+
+    @mock.patch.object(jobs, 'run')
+    def test_failed_notes_are_not_reused(self, run):
+        self.saved.status = ArticlePost.Status.FAILED
+        self.saved.save()
+        response = self.post(self.alice)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(ArticlePost.objects.filter(user=self.alice).count(), 2)
+
+
 class JobStatusViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('alice', password='pw-12345-long')
