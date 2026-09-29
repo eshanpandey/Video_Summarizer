@@ -4,7 +4,10 @@ Video Summarizer is a Django web application that allows users to enter YouTube 
 
 ## Features
 
-- Paste a YouTube link and get notes: a readable summary, key takeaways, timestamped chapters that jump to that moment in the video, and a short quiz
+- Paste a YouTube link and get notes: a readable summary, key takeaways, timestamped chapters, and a short quiz
+- Watch the video on the notes page with a synced transcript: click a chapter or transcript line to jump there, and the line being spoken is highlighted
+- A video that's already been processed reuses its saved transcript and notes, so it isn't transcribed and summarized twice
+- Per-user daily caps on videos and questions keep API costs in check
 - Ask questions about a video and get answers grounded in its transcript
 - Videos process in the background with live progress, so long videos don't time out and you can leave the page
 - My notes: search across notes and transcripts, rename, delete, retry failed videos, and export any note as Markdown
@@ -58,6 +61,9 @@ Run the tests with `python manage.py test`.
 | `DJANGO_DEBUG` | `true` | Set `false` in production |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames |
 | `JOB_WORKERS` | `2` | Videos processed at the same time |
+| `SUMMARIES_PER_DAY` | `20` | New videos per user per 24 hours (0 = unlimited; staff are exempt) |
+| `QUESTIONS_PER_DAY` | `50` | Questions per user per 24 hours (0 = unlimited) |
+| `MAX_ACTIVE_JOBS` | `3` | Videos one user can have processing at once (0 = unlimited) |
 
 ## Deployment
 
