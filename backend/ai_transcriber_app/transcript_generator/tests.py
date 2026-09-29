@@ -381,3 +381,9 @@ class AuthTests(TestCase):
 
     def test_login_bad_credentials(self):
         self.assertContains(self.client.post(reverse('login'), {'username': 'x', 'password': 'y'}), 'Wrong username')
+
+
+class HealthTests(TestCase):
+    def test_healthz_is_public(self):
+        response = self.client.get(reverse('healthz'))
+        self.assertEqual((response.status_code, response.content), (200, b'ok'))

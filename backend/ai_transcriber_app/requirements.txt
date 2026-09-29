@@ -7,3 +7,5 @@ youtube-transcript-api>=1.0
 assemblyai>=0.30
 google-genai>=1.0
 pydantic>=2
+gunicorn>=22
+whitenoise>=6.6

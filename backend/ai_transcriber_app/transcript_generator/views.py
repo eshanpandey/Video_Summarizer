@@ -22,6 +22,10 @@ MAX_QUESTION_LENGTH = 1000
 NOTES_PER_PAGE = 20
 
 
+def healthz(request):
+    return HttpResponse('ok', content_type='text/plain')
+
+
 @login_required
 def index(request):
     return render(request, 'index.html')
