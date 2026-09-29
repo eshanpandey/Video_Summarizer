@@ -144,3 +144,8 @@ LOGIN_URL = 'login'
 ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY', '')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+
+# Background summarize jobs (see transcript_generator/jobs.py)
+JOB_WORKERS = int(os.getenv('JOB_WORKERS', '2'))
+JOB_STALE_AFTER = int(os.getenv('JOB_STALE_AFTER', '1800'))  # seconds without progress
+JOBS_RUN_SYNC = os.getenv('JOBS_RUN_SYNC', 'false').lower() in ('1', 'true', 'yes')

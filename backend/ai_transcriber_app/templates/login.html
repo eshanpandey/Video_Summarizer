@@ -1,76 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-</head>
-<body class="bg-gray-100 font-sans antialiased">
-
-    <nav class="bg-gray-900 dark:bg-gray-800 p-4 text-white flex justify-between">
-        <div>
-          <h1 class="text-3xl font-bold">Summarizer AI</h1>
-        </div>
-        <div class="flex items-center">
-          <a href="signup" class="text-white hover:underline ">Signup</a>
-
-          <!-- Dark Mode Button -->
-          <button id="darkModeToggle" class="bg-gray-700 dark:bg-yellow-300 text-white dark:text-gray-800 rounded-full px-3 py-1 transition-colors duration-300">
-            <svg id="sunIcon" class="w-6 h-6 dark:hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-              <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
-            </svg>
-            <svg id="moonIcon" class="w-6 h-6 hidden dark:inline-block" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
-            </svg>
-          </button>
-        </div>
-      </nav>
-    
-    
-      <!-- Login Form -->
-      <div class ="flex items-center justify-center h-screen">
-        <div class="bg-white p-6 rounded-md shadow-md w-96">
-
-            <form class="space-y-4" action="" method="POST">
-              {%csrf_token%}
-              {% if error_message %}
-              <div align="center" style="color: red;">
-                  <h2>{{ error_message }}</h2>
-              </div>
-              {% endif %}
-                <h2 class="text-2xl font-bold text-center">Login</h1>
-                <div>
-                    <label for="username" class="block">Username</label>
-                    <input type="username" id="username" name="username" class="w-full border border-gray-300 rounded-md p-2">
-                </div>
-                <div>
-                    <label for="password" class="block">Password</label>
-                    <input type="password" id="password" name="password" class="w-full border border-gray-300 rounded-md p-2">
-                </div>
-                <div>
-                    <button type="submit" class="w-full bg-blue-500 text-white rounded-md p-2 hover:bg-blue-700">Login</button>
-                </div>
-              </form>
-      </div>
+{% extends 'base.html' %}
+{% block title %}Log in · Summarizer AI{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-10 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+  <h1 class="text-2xl font-bold text-center mb-4">Log in</h1>
+  {% if error_message %}<p class="mb-4 text-center text-red-600">{{ error_message }}</p>{% endif %}
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    <div>
+      <label for="username" class="block text-sm mb-1">Username</label>
+      <input id="username" name="username" required autofocus class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2">
     </div>
-
-
-
-
-
- <!-- JavaScript for Dark Mode Toggle -->
- <script>
-    const darkModeToggle = document.getElementById('darkModeToggle');
-    const htmlElement = document.documentElement;
-    const sunIcon = document.getElementById('sunIcon');
-    const moonIcon = document.getElementById('moonIcon');
-
-    darkModeToggle.addEventListener('click', function() {
-      htmlElement.classList.toggle('dark');
-      sunIcon.classList.toggle('hidden');
-      moonIcon.classList.toggle('hidden');
-    });
-  </script>
-</body>
-</html>
+    <div>
+      <label for="password" class="block text-sm mb-1">Password</label>
+      <input type="password" id="password" name="password" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2">
+    </div>
+    <button type="submit" class="w-full rounded-md bg-emerald-600 text-white p-2 hover:bg-emerald-700">Log in</button>
+  </form>
+  <p class="mt-4 text-center text-sm">No account? <a href="{% url 'signup' %}" class="text-emerald-600 hover:underline">Sign up</a></p>
+</div>
+{% endblock %}

@@ -5,9 +5,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from . import services
+from . import jobs, services
 from .models import ArticlePost
 
 @login_required
@@ -56,33 +57,55 @@ def generate_transcript(request):
     try:
         data = json.loads(request.body)
         yt_link = data['link'].strip()
-    except (KeyError, AttributeError, json.JSONDecodeError):
+    except (KeyError, AttributeError, TypeError, json.JSONDecodeError):
         return JsonResponse({'error': 'Invalid data sent'}, status=400)
 
     try:
         services.extract_video_id(yt_link)
-        title = services.get_video_title(yt_link)
-        transcript = services.get_transcript(yt_link)
-        article_content = services.generate_notes(transcript)
     except services.PipelineError as exc:
         return JsonResponse({'error': str(exc)}, status=exc.status)
 
     article = ArticlePost.objects.create(
         user=request.user,
-        video_title=title,
         youtube_link=yt_link,
-        generated_content=article_content,
+        status=ArticlePost.Status.PENDING,
+        stage='Queued',
     )
+    jobs.enqueue(article)
+    article.refresh_from_db()
 
-    return JsonResponse({'content': article_content, 'title': title, 'id': article.id})
+    return JsonResponse(job_payload(article), status=202)
+
+
+@login_required
+def job_status(request, pk):
+    article = get_object_or_404(ArticlePost, id=pk, user=request.user)
+    return JsonResponse(job_payload(jobs.fail_if_stale(article)))
+
+
+def job_payload(article):
+    payload = {
+        'id': article.id,
+        'status': article.status,
+        'stage': article.stage,
+        'title': article.video_title,
+        'status_url': reverse('job-status', args=[article.id]),
+        'article_url': reverse('full-article', args=[article.id]),
+    }
+    if article.status == ArticlePost.Status.DONE:
+        payload['content'] = article.generated_content
+    if article.status == ArticlePost.Status.FAILED:
+        payload['error'] = article.error
+    return payload
 
 
 @login_required
 def all_scripts(request):
-    articles = ArticlePost.objects.filter(user=request.user).order_by('-created_at')
+    articles = ArticlePost.objects.filter(user=request.user)
     return render(request, 'all-scripts.html', {'articles': articles})
 
 
+@require_POST
 def user_logout(request):
     logout(request)
     return redirect('/')
