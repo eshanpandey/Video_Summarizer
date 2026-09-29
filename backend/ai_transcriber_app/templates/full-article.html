@@ -25,6 +25,33 @@
   </p>
 
   {% if full_article.status == 'done' %}
+    {% if full_article.video_id %}
+      <section class="mt-6 grid gap-4 lg:grid-cols-5">
+        <div class="lg:col-span-3">
+          <div id="playerBox" class="relative w-full aspect-video rounded-md overflow-hidden bg-black">
+            {# Built by hand so it can send a referrer, which YouTube's embed now requires. #}
+            <iframe id="player" class="absolute inset-0 w-full h-full" title="{{ full_article }}"
+                    src="https://www.youtube-nocookie.com/embed/{{ full_article.video_id }}?enablejsapi=1&amp;rel=0&amp;origin={{ request.scheme }}://{{ request.get_host }}"
+                    referrerpolicy="strict-origin-when-cross-origin" frameborder="0" allowfullscreen
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>
+          </div>
+        </div>
+        {% if transcript_lines %}
+          <div class="lg:col-span-2">
+            <h2 class="font-semibold mb-2">Transcript</h2>
+            <div id="transcript" class="relative overflow-y-auto max-h-72 lg:max-h-[21rem] rounded-md border border-gray-200 dark:border-gray-700 p-1 text-sm">
+              {% for line in transcript_lines %}
+                <a href="https://www.youtube.com/watch?v={{ full_article.video_id }}&amp;t={{ line.seconds }}s" target="_blank" rel="noopener noreferrer"
+                   data-seconds="{{ line.seconds }}" class="seek transcript-line block rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <span class="font-mono text-xs text-emerald-600 mr-2">{{ line.timestamp }}</span>{{ line.text }}
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if full_article.key_takeaways %}
       <section class="mt-6 rounded-md bg-emerald-50 dark:bg-emerald-900/30 p-4">
         <h2 class="font-semibold mb-2">Key takeaways</h2>
@@ -45,7 +72,7 @@
         <ol class="space-y-3">
           {% for chapter in chapters %}
             <li>
-              <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer" class="font-mono text-sm text-emerald-600 hover:underline">{{ chapter.timestamp }}</a>
+              <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer" data-seconds="{{ chapter.start_seconds }}" class="seek font-mono text-sm text-emerald-600 hover:underline">{{ chapter.timestamp }}</a>
               <span class="font-medium ml-2">{{ chapter.title }}</span>
               <p class="text-sm text-gray-600 dark:text-gray-400 ml-14">{{ chapter.summary }}</p>
             </li>
@@ -87,7 +114,7 @@
       <p id="askError" class="hidden mt-2 text-red-600"></p>
     </section>
 
-    {% if full_article.transcript %}
+    {% if full_article.transcript and not full_article.video_id %}
       <details class="mt-8">
         <summary class="cursor-pointer font-semibold">Full transcript</summary>
         <div class="mt-3 whitespace-pre-line text-sm text-gray-700 dark:text-gray-300">{{ full_article.transcript }}</div>
@@ -123,6 +150,54 @@
   }, 4000);
 </script>
 {% elif full_article.status == 'done' %}
+{% if full_article.video_id %}
+<script>
+  // Chapter and transcript links seek the embedded player; without it they open YouTube.
+  let player = null;
+  const lines = [...document.querySelectorAll('.transcript-line')];
+  const transcriptBox = document.getElementById('transcript');
+  let current = null;
+  let hovering = false;
+  if (transcriptBox) {
+    transcriptBox.addEventListener('mouseenter', () => { hovering = true; });
+    transcriptBox.addEventListener('mouseleave', () => { hovering = false; });
+  }
+
+  function highlight(seconds) {
+    let line = null;
+    for (const candidate of lines) {
+      if (Number(candidate.dataset.seconds) > seconds) break;
+      line = candidate;
+    }
+    if (line === current) return;
+    if (current) current.classList.remove('bg-emerald-100', 'dark:bg-emerald-900/40');
+    current = line;
+    if (!line) return;
+    line.classList.add('bg-emerald-100', 'dark:bg-emerald-900/40');
+    if (!hovering) transcriptBox.scrollTop = line.offsetTop - transcriptBox.clientHeight / 3;
+  }
+
+  window.onYouTubeIframeAPIReady = () => {
+    new YT.Player('player', { events: { onReady: (event) => { player = event.target; } } });
+    setInterval(() => {
+      if (player && lines.length && player.getPlayerState() === YT.PlayerState.PLAYING) highlight(player.getCurrentTime());
+    }, 500);
+  };
+
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('a.seek');
+    if (!link || !player) return;
+    event.preventDefault();
+    const seconds = Number(link.dataset.seconds);
+    player.seekTo(seconds, true);
+    player.playVideo();
+    highlight(seconds);
+    const box = document.getElementById('playerBox').getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight) document.getElementById('playerBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+</script>
+<script src="https://www.youtube.com/iframe_api" async></script>
+{% endif %}
 <script>
   document.querySelectorAll('.quiz').forEach((quiz) => {
     const answer = Number(quiz.dataset.answer);

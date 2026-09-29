@@ -167,6 +167,11 @@ JOB_WORKERS = int(os.getenv('JOB_WORKERS', '2'))
 JOB_STALE_AFTER = int(os.getenv('JOB_STALE_AFTER', '1800'))  # seconds without progress
 JOBS_RUN_SYNC = os.getenv('JOBS_RUN_SYNC', 'false').lower() in ('1', 'true', 'yes')
 
+# Per-user usage caps (0 = unlimited). Staff accounts are exempt.
+SUMMARIES_PER_DAY = int(os.getenv('SUMMARIES_PER_DAY', '20'))
+QUESTIONS_PER_DAY = int(os.getenv('QUESTIONS_PER_DAY', '50'))
+MAX_ACTIVE_JOBS = int(os.getenv('MAX_ACTIVE_JOBS', '3'))
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

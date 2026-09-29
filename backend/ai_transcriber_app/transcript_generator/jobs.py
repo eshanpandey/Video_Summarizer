@@ -42,8 +42,23 @@ def run(pk):
 
         _update(pk, status=ArticlePost.Status.PROCESSING, stage='Looking up the video')
         title = services.get_video_title(url)
-        _update(pk, video_title=title, stage='Getting the transcript')
+        _update(pk, video_title=title)
 
+        saved = _saved_notes_for(article)
+        if saved:
+            _update(
+                pk,
+                transcript=saved.transcript,
+                generated_content=saved.generated_content,
+                key_takeaways=saved.key_takeaways,
+                chapters=saved.chapters,
+                quiz=saved.quiz,
+                status=ArticlePost.Status.DONE,
+                stage='',
+            )
+            return
+
+        _update(pk, stage='Getting the transcript')
         transcript = services.get_transcript(url)
         _update(pk, transcript=transcript, stage='Writing notes')
 
@@ -64,6 +79,22 @@ def run(pk):
         _update(pk, status=ArticlePost.Status.FAILED, error='Something went wrong.', stage='')
     finally:
         close_old_connections()
+
+
+def _saved_notes_for(article):
+    """Finished notes for the same video, from any user, so it isn't transcribed and summarized twice.
+
+    Only the generated content is copied: titles (which users can rename) and questions stay private.
+    """
+    if not article.video_id:
+        return None
+    return (
+        ArticlePost.objects.filter(video_id=article.video_id, status=ArticlePost.Status.DONE)
+        .exclude(pk=article.pk)
+        .exclude(generated_content='')
+        .order_by('-updated_at')
+        .first()
+    )
 
 
 def fail_if_stale(article):

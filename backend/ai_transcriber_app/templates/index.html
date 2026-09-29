@@ -8,6 +8,9 @@
     <input id="youtubeLink" type="url" required placeholder="https://www.youtube.com/watch?v=..." class="flex-grow rounded-md border border-emerald-400 bg-transparent p-2">
     <button id="submitButton" type="submit" class="rounded-md bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700 disabled:opacity-50">Summarize</button>
   </form>
+  {% if summaries_left is not None %}
+    <p class="mt-2 text-sm text-gray-500">{{ summaries_left }} video{{ summaries_left|pluralize }} left today.</p>
+  {% endif %}
 
   <div id="progress" class="hidden mt-6 flex items-center gap-3 text-gray-700 dark:text-gray-300">
     <div class="spinner"></div>
@@ -44,7 +47,7 @@
 
   // Model output is plain text: always render it as text, never as HTML.
   function showResult(job) {
-    document.getElementById('resultTitle').textContent = job.title || 'Notes';
+    document.getElementById('resultTitle').textContent = (job.title || 'Notes') + (job.existing ? ' (already in My notes)' : '');
     document.getElementById('resultContent').textContent = job.content;
     document.getElementById('resultLink').href = job.article_url;
     show(progress, false);

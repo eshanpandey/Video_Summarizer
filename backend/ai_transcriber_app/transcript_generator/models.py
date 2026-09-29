@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.db import models
 
-from .services import PipelineError, extract_video_id, format_timestamp
+from .services import PipelineError, extract_video_id, format_timestamp, parse_transcript
 
 
 class ArticlePost(models.Model):
@@ -14,6 +14,7 @@ class ArticlePost(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)  # user who created the article
     video_title = models.CharField(max_length=300, blank=True)
     youtube_link = models.URLField(max_length=300)
+    video_id = models.CharField(max_length=11, blank=True, db_index=True)  # YouTube id, for reusing results
     generated_content = models.TextField(blank=True)  # the summary article
     transcript = models.TextField(blank=True)  # '[mm:ss] text' lines
     key_takeaways = models.JSONField(default=list, blank=True)
@@ -37,12 +38,13 @@ class ArticlePost(models.Model):
     def is_finished(self):
         return self.status in (self.Status.DONE, self.Status.FAILED)
 
-    @property
-    def video_id(self):
-        try:
-            return extract_video_id(self.youtube_link)
-        except PipelineError:
-            return None
+    def save(self, *args, **kwargs):
+        if not self.video_id:
+            try:
+                self.video_id = extract_video_id(self.youtube_link)
+            except PipelineError:
+                pass
+        super().save(*args, **kwargs)
 
     def chapters_with_links(self):
         return [
@@ -54,6 +56,11 @@ class ArticlePost(models.Model):
             for chapter in self.chapters
         ]
 
+    def transcript_lines(self):
+        return [
+            {'seconds': seconds, 'timestamp': format_timestamp(seconds), 'text': text}
+            for seconds, text in parse_transcript(self.transcript)
+        ]
 
     def to_markdown(self):
         lines = [f'# {self}', '', f'Video: {self.youtube_link}', '']

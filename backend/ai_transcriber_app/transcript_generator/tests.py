@@ -38,6 +38,18 @@ class FormatSegmentsTests(TestCase):
         self.assertEqual(services.format_segments([(0, '  '), (5, 'hi')]), '[00:05] hi')
 
 
+class ParseTranscriptTests(TestCase):
+    def test_round_trips_formatted_segments(self):
+        transcript = services.format_segments([(0, 'hello'), (31, 'next'), (3700, 'later')])
+        self.assertEqual(services.parse_transcript(transcript),
+                         [(0, 'hello'), (31, 'next'), (3700, 'later')])
+
+    def test_untimed_text_is_kept(self):
+        self.assertEqual(services.parse_transcript('plain text\n[00:05] hi\nmore'),
+                         [(0, 'plain text'), (5, 'hi more')])
+        self.assertEqual(services.parse_transcript(''), [])
+
+
 class GenerateNotesTests(TestCase):
     def notes_json(self, **overrides):
         data = {
@@ -157,6 +169,118 @@ class GenerateTranscriptViewTests(TestCase):
         self.assertEqual(response.json()['error'], 'Something went wrong.')
 
 
+@override_settings(JOBS_RUN_SYNC=True)
+class ReuseResultsTests(TestCase):
+    url = reverse('generate-transcript')
+    link = 'https://youtu.be/dQw4w9WgXcQ'
+
+    def setUp(self):
+        self.alice = User.objects.create_user('alice', password='pw-12345-long')
+        self.bob = User.objects.create_user('bob', password='pw-12345-long')
+        self.saved = ArticlePost.objects.create(
+            user=self.alice, video_title='Renamed by Alice', youtube_link='https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            generated_content='saved notes', transcript='[00:00] saved', key_takeaways=['k'],
+            chapters=[{'start_seconds': 0, 'title': 'A', 'summary': 's'}], quiz=[])
+        self.saved.questions.create(question='private?', answer='yes')
+
+    def post(self, user):
+        self.client.force_login(user)
+        return self.client.post(self.url, data=json.dumps({'link': self.link}), content_type='application/json')
+
+    def test_video_id_is_stored(self):
+        self.assertEqual(self.saved.video_id, 'dQw4w9WgXcQ')
+
+    @mock.patch.object(services, 'generate_notes')
+    @mock.patch.object(services, 'get_transcript')
+    @mock.patch.object(services, 'get_video_title', return_value='Original title')
+    def test_reuses_another_users_notes(self, title, transcript, notes):
+        response = self.post(self.bob)
+        self.assertEqual(response.json()['status'], 'done')
+        transcript.assert_not_called()
+        notes.assert_not_called()
+        article = ArticlePost.objects.get(user=self.bob)
+        self.assertEqual((article.video_title, article.generated_content, article.transcript, article.key_takeaways),
+                         ('Original title', 'saved notes', '[00:00] saved', ['k']))
+        self.assertEqual(article.questions.count(), 0)
+
+    @mock.patch.object(jobs, 'run')
+    def test_same_user_gets_existing_notes(self, run):
+        response = self.post(self.alice)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.json()['id'], response.json()['existing']), (self.saved.id, True))
+        self.assertEqual(ArticlePost.objects.count(), 1)
+        run.assert_not_called()
+
+    @mock.patch.object(jobs, 'run')
+    def test_failed_notes_are_not_reused(self, run):
+        self.saved.status = ArticlePost.Status.FAILED
+        self.saved.save()
+        response = self.post(self.alice)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(ArticlePost.objects.filter(user=self.alice).count(), 2)
+
+
+@override_settings(SUMMARIES_PER_DAY=2, QUESTIONS_PER_DAY=1, MAX_ACTIVE_JOBS=1)
+class UsageLimitTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('alice', password='pw-12345-long')
+        self.client.force_login(self.user)
+
+    def summarize(self, video_id):
+        return self.client.post(reverse('generate-transcript'), content_type='application/json',
+                                data=json.dumps({'link': f'https://youtu.be/{video_id}'}))
+
+    def make(self, video_id, status=ArticlePost.Status.DONE, **fields):
+        return ArticlePost.objects.create(user=self.user, youtube_link=f'https://youtu.be/{video_id}',
+                                          status=status, **fields)
+
+    @mock.patch.object(jobs, 'enqueue')
+    def test_daily_summary_cap(self, enqueue):
+        self.make('aaaaaaaaaaa')
+        self.assertContains(self.client.get(reverse('index')), '1 video left today')
+        self.assertEqual(self.summarize('bbbbbbbbbbb').status_code, 202)
+        response = self.summarize('ccccccccccc')
+        self.assertEqual(response.status_code, 429)
+        self.assertIn('2 videos a day', response.json()['error'])
+        # Opening notes you already have is free.
+        self.assertEqual(self.summarize('aaaaaaaaaaa').status_code, 200)
+
+    @mock.patch.object(jobs, 'enqueue')
+    def test_old_notes_do_not_count(self, enqueue):
+        old = self.make('aaaaaaaaaaa')
+        ArticlePost.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=2))
+        self.make('bbbbbbbbbbb')
+        self.assertEqual(self.summarize('ccccccccccc').status_code, 202)
+
+    @override_settings(SUMMARIES_PER_DAY=0)
+    @mock.patch.object(jobs, 'enqueue')
+    def test_active_job_cap(self, enqueue):
+        self.make('aaaaaaaaaaa', status=ArticlePost.Status.PROCESSING)
+        response = self.summarize('bbbbbbbbbbb')
+        self.assertEqual(response.status_code, 429)
+        self.assertIn('processing', response.json()['error'])
+        failed = self.make('ccccccccccc', status=ArticlePost.Status.FAILED)
+        self.client.post(reverse('retry-article', args=[failed.id]))
+        enqueue.assert_not_called()
+        self.assertEqual(ArticlePost.objects.get(pk=failed.pk).status, 'failed')
+
+    @mock.patch.object(jobs, 'enqueue')
+    def test_staff_are_exempt(self, enqueue):
+        self.user.is_staff = True
+        self.user.save()
+        for video_id in ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']:
+            self.assertEqual(self.summarize(video_id).status_code, 202)
+
+    @mock.patch.object(services, 'answer_question', return_value='an answer')
+    def test_daily_question_cap(self, answer):
+        article = self.make('aaaaaaaaaaa', transcript='[00:00] hi')
+        url = reverse('ask-question', args=[article.id])
+        ask = lambda: self.client.post(url, data=json.dumps({'question': 'why?'}), content_type='application/json')
+        self.assertEqual(ask().status_code, 200)
+        self.assertEqual(ask().status_code, 429)
+        self.assertEqual(answer.call_count, 1)
+
+
 class JobStatusViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('alice', password='pw-12345-long')
@@ -203,6 +327,18 @@ class FullArticleViewTests(TestCase):
         self.client.force_login(self.owner)
         response = self.client.get(reverse('full-article', args=[self.article.id]))
         self.assertContains(response, '&lt;b&gt;hi&lt;/b&gt;')
+
+    def test_embeds_player_with_seekable_transcript(self):
+        self.article.youtube_link = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        self.article.transcript = '[00:00] intro\n[01:05] <i>main</i> part'
+        self.article.chapters = [{'start_seconds': 65, 'title': 'Main', 'summary': 's'}]
+        self.article.save()
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('full-article', args=[self.article.id]))
+        self.assertContains(response, 'youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1')
+        self.assertContains(response, 'data-seconds="65"', count=2)  # chapter + transcript line
+        self.assertContains(response, '&lt;i&gt;main&lt;/i&gt; part')
+        self.assertNotContains(response, 'Full transcript')
 
     def test_other_user_gets_404(self):
         self.client.force_login(self.other)

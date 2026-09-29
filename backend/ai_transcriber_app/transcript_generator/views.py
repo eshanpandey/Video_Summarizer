@@ -15,7 +15,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
-from . import jobs, services
+from . import jobs, limits, services
 from .models import ArticlePost
 
 MAX_QUESTION_LENGTH = 1000
@@ -28,7 +28,7 @@ def healthz(request):
 
 @login_required
 def index(request):
-    return render(request, 'index.html')
+    return render(request, 'index.html', {'summaries_left': limits.summaries_left(request.user)})
 
 
 def _safe_next(request):
@@ -93,9 +93,22 @@ def generate_transcript(request):
         return JsonResponse({'error': 'Invalid data sent'}, status=400)
 
     try:
-        services.extract_video_id(yt_link)
+        video_id = services.extract_video_id(yt_link)
     except services.PipelineError as exc:
         return JsonResponse({'error': str(exc)}, status=exc.status)
+
+    # Already have (or are making) notes for this video: open those instead of a duplicate.
+    existing = (
+        ArticlePost.objects.filter(user=request.user, video_id=video_id)
+        .exclude(status=ArticlePost.Status.FAILED)
+        .first()
+    )
+    if existing and jobs.fail_if_stale(existing).status != ArticlePost.Status.FAILED:
+        return JsonResponse({**job_payload(existing), 'existing': True})
+
+    limit_error = limits.summary_error(request.user)
+    if limit_error:
+        return JsonResponse({'error': limit_error}, status=429)
 
     article = ArticlePost.objects.create(
         user=request.user,
@@ -157,6 +170,7 @@ def full_article(request, pk):
     return render(request, 'full-article.html', {
         'full_article': full_article,
         'chapters': full_article.chapters_with_links(),
+        'transcript_lines': full_article.transcript_lines(),
         'questions': full_article.questions.all(),
     })
 
@@ -171,6 +185,9 @@ def ask_question(request, pk):
         return JsonResponse({'error': 'Invalid data sent'}, status=400)
     if not question or len(question) > MAX_QUESTION_LENGTH:
         return JsonResponse({'error': f'Ask a question of up to {MAX_QUESTION_LENGTH} characters.'}, status=400)
+    limit_error = limits.question_error(request.user)
+    if limit_error:
+        return JsonResponse({'error': limit_error}, status=429)
 
     context = article.transcript or article.generated_content
     try:
@@ -213,6 +230,10 @@ def delete_article(request, pk):
 def retry_article(request, pk):
     article = _own_article(request, pk)
     if article.status == ArticlePost.Status.FAILED:
+        limit_error = limits.active_jobs_error(request.user)
+        if limit_error:
+            messages.error(request, limit_error)
+            return redirect('full-article', pk=article.id)
         article.status = ArticlePost.Status.PENDING
         article.stage = 'Queued'
         article.error = ''
