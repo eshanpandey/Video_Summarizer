@@ -283,3 +283,101 @@ class AskQuestionViewTests(TestCase):
         response = self.ask({'question': 'hi'})
         self.assertEqual(response.status_code, 500)
         self.assertEqual(self.article.questions.count(), 0)
+
+
+class NotesLibraryTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('alice', password='pw-12345-long')
+        self.client.force_login(self.user)
+        self.article = ArticlePost.objects.create(
+            user=self.user, youtube_link='https://youtu.be/dQw4w9WgXcQ', video_title='Rust basics',
+            generated_content='Ownership explained.', transcript='[00:00] borrow checker',
+            key_takeaways=['Own it'], chapters=[{'start_seconds': 5, 'title': 'Start', 'summary': 's'}],
+            quiz=[{'question': 'Q?', 'options': ['a', 'b'], 'answer_index': 1, 'explanation': 'e'}])
+        ArticlePost.objects.create(user=self.user, youtube_link='https://youtu.be/b', video_title='Cooking pasta')
+
+    def test_search(self):
+        url = reverse('all-scripts')
+        for query in ['rust', 'OWNERSHIP', 'borrow']:
+            response = self.client.get(url, {'q': query})
+            self.assertContains(response, 'Rust basics')
+            self.assertNotContains(response, 'Cooking pasta')
+        self.assertContains(self.client.get(url, {'q': 'zzz'}), 'No notes match')
+
+    def test_pagination(self):
+        for i in range(25):
+            ArticlePost.objects.create(user=self.user, youtube_link='https://youtu.be/c', video_title=f'Extra {i}')
+        response = self.client.get(reverse('all-scripts'))
+        self.assertEqual(len(response.context['articles']), 20)
+        self.assertContains(response, 'Page 1 of 2')
+
+    def test_rename(self):
+        self.client.post(reverse('rename-article', args=[self.article.id]), {'title': 'Ownership in Rust'})
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.video_title, 'Ownership in Rust')
+
+    def test_delete(self):
+        response = self.client.post(reverse('delete-article', args=[self.article.id]))
+        self.assertRedirects(response, reverse('all-scripts'))
+        self.assertFalse(ArticlePost.objects.filter(id=self.article.id).exists())
+
+    def test_cannot_touch_other_users_notes(self):
+        other = User.objects.create_user('bob', password='pw-12345-long')
+        self.client.force_login(other)
+        for name in ['rename-article', 'delete-article', 'retry-article']:
+            self.assertEqual(self.client.post(reverse(name, args=[self.article.id]), {'title': 'x'}).status_code, 404)
+        self.assertEqual(self.client.get(reverse('export-article', args=[self.article.id])).status_code, 404)
+        self.assertTrue(ArticlePost.objects.filter(id=self.article.id, video_title='Rust basics').exists())
+
+    def test_export_markdown(self):
+        self.article.questions.create(question='Why?', answer='Because.')
+        response = self.client.get(reverse('export-article', args=[self.article.id]))
+        self.assertEqual(response['Content-Type'], 'text/markdown; charset=utf-8')
+        self.assertIn('rust-basics.md', response['Content-Disposition'])
+        body = response.content.decode()
+        for expected in ['# Rust basics', '- Own it', 'Ownership explained.',
+                         '[00:05](https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=5s)', '**b**', '**Q: Why?**',
+                         '[00:00] borrow checker']:
+            self.assertIn(expected, body)
+
+    @override_settings(JOBS_RUN_SYNC=True)
+    @mock.patch.object(jobs, 'run')
+    def test_retry_failed_job(self, run):
+        self.article.status = 'failed'
+        self.article.error = 'boom'
+        self.article.save()
+        self.client.post(reverse('retry-article', args=[self.article.id]))
+        self.article.refresh_from_db()
+        self.assertEqual((self.article.status, self.article.error), ('pending', ''))
+        run.assert_called_once_with(self.article.id)
+
+
+class AuthTests(TestCase):
+    def signup(self, **overrides):
+        data = {'username': 'newbie', 'email': 'n@example.com', 'password': 'a-Long-passphrase-9',
+                'repeatPassword': 'a-Long-passphrase-9'}
+        data.update(overrides)
+        return self.client.post(reverse('signup'), data)
+
+    def test_signup_logs_in(self):
+        self.assertRedirects(self.signup(), reverse('index'))
+
+    def test_signup_rejects_weak_or_mismatched_password(self):
+        self.assertContains(self.signup(password='123', repeatPassword='123'), 'too short')
+        self.assertContains(self.signup(repeatPassword='different'), 'do not match')
+        self.assertFalse(User.objects.exists())
+
+    def test_signup_rejects_taken_username(self):
+        User.objects.create_user('Newbie', password='x')
+        self.assertContains(self.signup(), 'taken')
+
+    def test_login_honours_safe_next_only(self):
+        User.objects.create_user('alice', password='pw-12345-long')
+        creds = {'username': 'alice', 'password': 'pw-12345-long'}
+        response = self.client.post(reverse('login'), {**creds, 'next': reverse('all-scripts')})
+        self.assertRedirects(response, reverse('all-scripts'))
+        response = self.client.post(reverse('login'), {**creds, 'next': 'https://evil.example.com/'})
+        self.assertRedirects(response, reverse('index'))
+
+    def test_login_bad_credentials(self):
+        self.assertContains(self.client.post(reverse('login'), {'username': 'x', 'password': 'y'}), 'Wrong username')

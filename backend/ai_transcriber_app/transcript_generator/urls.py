@@ -10,8 +10,8 @@ urlpatterns = [
    path('jobs/<int:pk>/', views.job_status, name='job-status'),
    path('full-article/<int:pk>/',views.full_article,name='full-article'),
    path('full-article/<int:pk>/ask', views.ask_question, name='ask-question'),
-
-
-
-
+   path('full-article/<int:pk>/rename', views.rename_article, name='rename-article'),
+   path('full-article/<int:pk>/delete', views.delete_article, name='delete-article'),
+   path('full-article/<int:pk>/retry', views.retry_article, name='retry-article'),
+   path('full-article/<int:pk>/export.md', views.export_article, name='export-article'),
 ]

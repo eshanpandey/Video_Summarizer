@@ -1,7 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}My notes · Summarizer AI{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-semibold mb-6">My notes</h1>
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+  <h1 class="text-2xl font-semibold">My notes</h1>
+  <form method="get" class="flex gap-2">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search notes and transcripts" class="rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2 text-sm w-64">
+    <button class="rounded-md bg-emerald-600 text-white px-3 text-sm hover:bg-emerald-700">Search</button>
+  </form>
+</div>
 <div class="space-y-3">
   {% for article in articles %}
     <a href="{% url 'full-article' article.id %}" class="block bg-white dark:bg-gray-800 p-4 rounded-lg shadow hover:ring-2 hover:ring-emerald-500">
@@ -15,7 +21,19 @@
       <p class="text-xs text-gray-500 mt-2">{{ article.created_at|date:"M j, Y" }}</p>
     </a>
   {% empty %}
-    <p class="text-gray-600 dark:text-gray-400">No notes yet. <a href="{% url 'index' %}" class="text-emerald-600 hover:underline">Summarize your first video</a>.</p>
+    {% if query %}
+      <p class="text-gray-600 dark:text-gray-400">No notes match "{{ query }}". <a href="{% url 'all-scripts' %}" class="text-emerald-600 hover:underline">Show all</a></p>
+    {% else %}
+      <p class="text-gray-600 dark:text-gray-400">No notes yet. <a href="{% url 'index' %}" class="text-emerald-600 hover:underline">Summarize your first video</a>.</p>
+    {% endif %}
   {% endfor %}
 </div>
+
+{% if page.has_other_pages %}
+  <nav class="flex justify-between items-center mt-6 text-sm">
+    {% if page.has_previous %}<a href="?{% if query %}q={{ query|urlencode }}&amp;{% endif %}page={{ page.previous_page_number }}" class="text-emerald-600 hover:underline">&larr; Newer</a>{% else %}<span></span>{% endif %}
+    <span class="text-gray-500">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{% if query %}q={{ query|urlencode }}&amp;{% endif %}page={{ page.next_page_number }}" class="text-emerald-600 hover:underline">Older &rarr;</a>{% else %}<span></span>{% endif %}
+  </nav>
+{% endif %}
 {% endblock %}

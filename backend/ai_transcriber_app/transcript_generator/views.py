@@ -1,57 +1,83 @@
 import json
 
+from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.http import JsonResponse
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
 from . import jobs, services
 from .models import ArticlePost
 
 MAX_QUESTION_LENGTH = 1000
+NOTES_PER_PAGE = 20
+
 
 @login_required
 def index(request):
     return render(request, 'index.html')
 
-def user_login(request):
-    if request.method =='POST':
-      username=request.POST['username']
-      password=request.POST['password'] 
 
-      user = authenticate(request,username=username,password=password)
-      if user is not None:
-          login(request,user)
-          return redirect('/')
-      else:
-            error_message = "No such user found recheck credentials"
-            return render(request, 'login.html', {'error_message': error_message})
-    return render(request,'login.html')
+def _safe_next(request):
+    next_url = request.POST.get('next') or request.GET.get('next')
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return reverse('index')
+
+
+def user_login(request):
+    context = {'next': request.POST.get('next') or request.GET.get('next', '')}
+    if request.method == 'POST':
+        user = authenticate(
+            request,
+            username=request.POST.get('username', ''),
+            password=request.POST.get('password', ''),
+        )
+        if user is not None:
+            login(request, user)
+            return redirect(_safe_next(request))
+        context['error_message'] = 'Wrong username or password.'
+    return render(request, 'login.html', context)
+
 
 def user_signup(request):
     if request.method == 'POST':
-        username = request.POST['username']
-        email = request.POST['email']
-        password = request.POST['password']
-        repeatPassword = request.POST['repeatPassword']
+        username = request.POST.get('username', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+        repeat_password = request.POST.get('repeatPassword', '')
 
-        if password == repeatPassword:
-            try:
-                user = User.objects.create_user(username, email, password)
-                user.save()
-                login(request, user)
-                return redirect('/')
-            except:
-                error_message = 'Error creating account'
-                return render(request, 'signup.html', {'error_message':error_message})
+        error_message = None
+        if not username:
+            error_message = 'Choose a username.'
+        elif User.objects.filter(username__iexact=username).exists():
+            error_message = 'That username is taken.'
+        elif password != repeat_password:
+            error_message = 'Passwords do not match.'
         else:
-            error_message = 'Password do not match'
-            return render(request, 'signup.html', {'error_message':error_message})
-        
+            try:
+                validate_password(password, User(username=username, email=email))
+            except ValidationError as exc:
+                error_message = ' '.join(exc.messages)
+
+        if error_message:
+            return render(request, 'signup.html', {'error_message': error_message, 'username': username, 'email': email})
+
+        user = User.objects.create_user(username, email, password)
+        login(request, user)
+        return redirect('index')
+
     return render(request, 'signup.html')
+
 
 @login_required
 @require_POST
@@ -104,7 +130,15 @@ def job_payload(article):
 @login_required
 def all_scripts(request):
     articles = ArticlePost.objects.filter(user=request.user)
-    return render(request, 'all-scripts.html', {'articles': articles})
+    query = request.GET.get('q', '').strip()
+    if query:
+        articles = articles.filter(
+            Q(video_title__icontains=query)
+            | Q(generated_content__icontains=query)
+            | Q(transcript__icontains=query)
+        )
+    page = Paginator(articles, NOTES_PER_PAGE).get_page(request.GET.get('page'))
+    return render(request, 'all-scripts.html', {'page': page, 'articles': page.object_list, 'query': query})
 
 
 @require_POST
@@ -142,3 +176,52 @@ def ask_question(request, pk):
 
     article.questions.create(question=question, answer=answer)
     return JsonResponse({'question': question, 'answer': answer})
+
+
+
+def _own_article(request, pk):
+    return get_object_or_404(ArticlePost, id=pk, user=request.user)
+
+
+@login_required
+@require_POST
+def rename_article(request, pk):
+    article = _own_article(request, pk)
+    title = request.POST.get('title', '').strip()[:300]
+    if title:
+        article.video_title = title
+        article.save(update_fields=['video_title', 'updated_at'])
+        messages.success(request, 'Renamed.')
+    return redirect('full-article', pk=article.id)
+
+
+@login_required
+@require_POST
+def delete_article(request, pk):
+    article = _own_article(request, pk)
+    article.delete()
+    messages.success(request, f'Deleted "{article}".')
+    return redirect('all-scripts')
+
+
+@login_required
+@require_POST
+def retry_article(request, pk):
+    article = _own_article(request, pk)
+    if article.status == ArticlePost.Status.FAILED:
+        article.status = ArticlePost.Status.PENDING
+        article.stage = 'Queued'
+        article.error = ''
+        article.save(update_fields=['status', 'stage', 'error', 'updated_at'])
+        jobs.enqueue(article)
+    return redirect('full-article', pk=article.id)
+
+
+@login_required
+def export_article(request, pk):
+    article = _own_article(request, pk)
+    if article.status != ArticlePost.Status.DONE:
+        raise Http404
+    response = HttpResponse(article.to_markdown(), content_type='text/markdown; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{slugify(str(article))[:80] or "notes"}.md"'
+    return response

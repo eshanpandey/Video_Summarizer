@@ -2,7 +2,23 @@
 {% block title %}{{ full_article }} · Summarizer AI{% endblock %}
 {% block content %}
 <article class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-  <h1 class="text-2xl font-semibold">{{ full_article }}</h1>
+  <div class="flex items-start justify-between gap-4">
+    <h1 id="titleText" class="text-2xl font-semibold">{{ full_article }}</h1>
+    <div class="flex items-center gap-3 text-sm shrink-0">
+      {% if full_article.status == 'done' %}
+        <a href="{% url 'export-article' full_article.id %}" class="text-emerald-600 hover:underline">Export .md</a>
+      {% endif %}
+      <button type="button" id="renameToggle" class="text-emerald-600 hover:underline">Rename</button>
+      <form action="{% url 'delete-article' full_article.id %}" method="post" onsubmit="return confirm('Delete these notes?');">
+        {% csrf_token %}<button class="text-red-600 hover:underline">Delete</button>
+      </form>
+    </div>
+  </div>
+  <form id="renameForm" action="{% url 'rename-article' full_article.id %}" method="post" class="hidden mt-3 flex gap-2">
+    {% csrf_token %}
+    <input name="title" value="{{ full_article.video_title }}" maxlength="300" required class="flex-grow rounded-md border border-gray-300 dark:border-gray-600 bg-transparent p-2">
+    <button class="rounded-md bg-emerald-600 text-white px-3 hover:bg-emerald-700">Save</button>
+  </form>
   <p class="text-sm text-gray-500 mt-1">
     <a href="{{ full_article.youtube_link }}" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Watch on YouTube</a>
     · {{ full_article.created_at|date:"M j, Y" }}
@@ -79,6 +95,9 @@
     {% endif %}
   {% elif full_article.status == 'failed' %}
     <p class="mt-6 text-red-600">{{ full_article.error|default:"Processing failed." }}</p>
+    <form action="{% url 'retry-article' full_article.id %}" method="post" class="mt-3">
+      {% csrf_token %}<button class="rounded-md bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700">Try again</button>
+    </form>
   {% else %}
     <div id="pending" class="mt-6 flex items-center gap-3" data-status-url="{% url 'job-status' full_article.id %}">
       <div class="spinner"></div><span>{{ full_article.stage|default:"Processing" }}. This page refreshes when it's ready.</span>
@@ -88,6 +107,11 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  document.getElementById('renameToggle').addEventListener('click', () => {
+    document.getElementById('renameForm').classList.toggle('hidden');
+  });
+</script>
 {% if not full_article.is_finished %}
 <script>
   const statusUrl = document.getElementById('pending').dataset.statusUrl;

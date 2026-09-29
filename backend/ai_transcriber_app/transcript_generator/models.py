@@ -55,6 +55,30 @@ class ArticlePost(models.Model):
         ]
 
 
+    def to_markdown(self):
+        lines = [f'# {self}', '', f'Video: {self.youtube_link}', '']
+        if self.key_takeaways:
+            lines += ['## Key takeaways', ''] + [f'- {point}' for point in self.key_takeaways] + ['']
+        lines += ['## Summary', '', self.generated_content.strip(), '']
+        if self.chapters:
+            lines += ['## Chapters', '']
+            lines += [f"- [{c['timestamp']}]({c['url']}) **{c['title']}**: {c['summary']}" for c in self.chapters_with_links()]
+            lines += ['']
+        if self.quiz:
+            lines += ['## Quiz', '']
+            for number, q in enumerate(self.quiz, 1):
+                lines.append(f"{number}. {q['question']}")
+                lines += [f"   - {'**' + option + '**' if i == q['answer_index'] else option}" for i, option in enumerate(q['options'])]
+                lines += [f"   - _{q['explanation']}_", '']
+        questions = list(self.questions.all())
+        if questions:
+            lines += ['## Questions', '']
+            for item in questions:
+                lines += [f'**Q: {item.question}**', '', item.answer, '']
+        if self.transcript:
+            lines += ['## Transcript', '', self.transcript, '']
+        return '\n'.join(lines)
+
 class Question(models.Model):
     article = models.ForeignKey(ArticlePost, on_delete=models.CASCADE, related_name='questions')
     question = models.TextField()
