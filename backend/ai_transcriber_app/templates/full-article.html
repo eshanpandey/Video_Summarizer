@@ -37,7 +37,7 @@
         <h2 class="text-xl mb-4 font-semibold">Full Summary</h2>
         <div class="border border-gray-300 p-4 rounded-lg">
             <h3 class="text-lg font-semibold">{{full_article.video_title}}</h3>
-            <p>{{full_article.generated_content}}</p>
+            {{ full_article.generated_content|linebreaks }}
             <hr class="my-4 border-gray-300"></hr>
             <h4 class="text-lg font-semibold">{{full_article.video_title}}</h4>
             <p class="text-gray-700">{{full_article.video_title}}</p>

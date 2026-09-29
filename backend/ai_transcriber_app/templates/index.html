@@ -149,18 +149,21 @@
                       method: 'POST',
                       headers: {
                           'Content-Type': 'application/json',
+                          'X-CSRFToken': '{{ csrf_token }}',
                       },
                       body: JSON.stringify({ link: youtubeLink })
                   });
 
                   const data = await response.json();
 
-                  blogContent.innerHTML = data.content;
+                  // Model output is plain text: render it as text, never as HTML.
+                  blogContent.textContent = response.ok ? data.content : (data.error || 'Something went wrong.');
+                  blogContent.style.whiteSpace = 'pre-line';
 
               } catch (error) {
                   console.error("Error occurred:", error);
                   alert("Something went wrong. Please try again later.");
-                  
+
               }
               document.getElementById('loading-circle').style.display = 'none';
           } else {

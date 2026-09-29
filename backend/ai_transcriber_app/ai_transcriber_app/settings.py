@@ -10,23 +10,32 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
+
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-+7bds#q-)e6sgj4o!p)6t4%7z0&mbi6eae6xd-6cj))e91tqz&'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-dev-only-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'true').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = []
+if not DEBUG and SECRET_KEY.startswith('django-insecure-dev-only'):
+    raise ImproperlyConfigured('Set DJANGO_SECRET_KEY when DJANGO_DEBUG is off.')
+
+ALLOWED_HOSTS = [h for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
 
 # Application definition
@@ -75,22 +84,13 @@ WSGI_APPLICATION = 'ai_transcriber_app.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
+# # Set DATABASE_URL (e.g. postgres://user:pass@host:5432/db) to use Postgres;
+# a local SQLite file is used otherwise.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'database',
-        'USER': 'fl0user',
-        'PASSWORD': 'UBPof0ZzIK7J',
-        'HOST': 'ep-silent-glade-a14ic7vn.ap-southeast-1.aws.neon.fl0.io',
-        'PORT': '5432',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+    )
 }
 
 
@@ -140,3 +140,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 LOGIN_URL = 'login'
+
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY', '')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')

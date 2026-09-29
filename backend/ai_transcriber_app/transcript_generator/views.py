@@ -1,24 +1,14 @@
-from django.shortcuts import render
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
-from django.shortcuts import redirect
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from django.conf import settings
 import json
-from pytube import YouTube
-import os
-import assemblyai as aa
-from dotenv import load_dotenv
-import requests
-import google.generativeai as genai
-from .models import ArticlePost
-# Create your views here.
-load_dotenv()
 
-ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
+
+from . import services
+from .models import ArticlePost
 
 @login_required
 def index(request):
@@ -60,84 +50,37 @@ def user_signup(request):
         
     return render(request, 'signup.html')
 
-# @csrf_exempt
-# def generate_transcript(request):
-#     if request.method=='POST':
-#         try:
-#             data=json.loads(request.body)
-#             yt_link = data['link']
-#         except (KeyError, json.JSONDecodeError):
-#             return JsonResponse({'error':'Invalid data sent'}, status=400)
-        
-#         title=yt_title(yt_link)
-#         #getting the transcript from the audio file
-#         transcript=get_transcription(yt_link)
-#         if not transcript:
-#             return JsonResponse({'error':'Transcription failed'}, status=500)
-        
-#         summary_content=generate_article(transcript)
-#         if not summary_content:
-#             return JsonResponse({'error':'Article generation failed'}, status=500)
-        
-
-#         return JsonResponse({'content':summary_content})
-
-
-#     else:
-#         return JsonResponse({'error':'Ivalid request method'}, status=405)
-
-
-prompt="""You are a notes maker You will be taking the transcript text
-and summarizing the entire video's crux without making it look like a video but a blog article
-and providing the important topics and their explanation in points use simple text only like 
- try to write simple paragraphs and points.
- make the language easy to understand for everyone. please generate only simple text with no html tags or any other formatting."""
-
-
-@csrf_exempt
+@login_required
+@require_POST
 def generate_transcript(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            yt_link = data['link']
-        except (KeyError, json.JSONDecodeError):
-            return JsonResponse({'error': 'Invalid data sent'}, status=400)
+    try:
+        data = json.loads(request.body)
+        yt_link = data['link'].strip()
+    except (KeyError, AttributeError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid data sent'}, status=400)
 
+    try:
+        services.extract_video_id(yt_link)
+        title = services.get_video_title(yt_link)
+        transcript = services.get_transcript(yt_link)
+        article_content = services.generate_notes(transcript)
+    except services.PipelineError as exc:
+        return JsonResponse({'error': str(exc)}, status=exc.status)
 
-        # getting video title
-        title = yt_title(yt_link)
+    article = ArticlePost.objects.create(
+        user=request.user,
+        video_title=title,
+        youtube_link=yt_link,
+        generated_content=article_content,
+    )
 
-        # getting transcript for the video
-        transcription = get_transcription(yt_link)
-        if not transcription:
-            return JsonResponse({'error': " Failed to get transcript"}, status=500)
-
-
-       
-        article_content = generate_article(transcription, prompt)
-        if not article_content:
-            return JsonResponse({'error': " Failed to generate blog article"}, status=500)
-
-        # save article to database
-        new_article_post = ArticlePost.objects.create(
-            user=request.user,
-            video_title=title,
-            youtube_link=yt_link,
-            generated_content=article_content,
-        )
-        new_article_post.save()
-
-        # return blog article as a response
-        return JsonResponse({'content': article_content})
-    else:
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
-
+    return JsonResponse({'content': article_content, 'title': title, 'id': article.id})
 
 
 @login_required
 def all_scripts(request):
-    articles=ArticlePost.objects.filter(user=request.user)
-    return render(request,'all-scripts.html',{'articles': articles})   
+    articles = ArticlePost.objects.filter(user=request.user).order_by('-created_at')
+    return render(request, 'all-scripts.html', {'articles': articles})
 
 
 def user_logout(request):
@@ -145,39 +88,7 @@ def user_logout(request):
     return redirect('/')
 
 
-def yt_title(link):
-    yt=YouTube(link)
-    title=yt.title
-    return title
-
-def get_transcription(link):
-    audio_file=download_audio(link)
-    aa.settings.api_key= ASSEMBLYAI_API_KEY
-    transcriber=aa.Transcriber()
-    transcript=transcriber.transcribe(audio_file)
-    os.remove(audio_file)
-    return transcript.text
-
-
-
-def download_audio(link):
-    yt = YouTube(link)
-    video = yt.streams.filter(only_audio=True).first()
-    out_file = video.download(output_path=settings.MEDIA_ROOT)
-    base, ext = os.path.splitext(out_file)
-    new_file = base + '.mp3'
-    os.rename(out_file, new_file)
-    return new_file
-
-
-def generate_article(transcript,prompt):
- model=genai.GenerativeModel("gemini-pro")
- response=model.generate_content(prompt+transcript)
- return response.text
-
-def full_article(request,pk):
-    full_article=ArticlePost.objects.get(id=pk)
-    if request.user == full_article.user:
-        return render (request,'full-article.html',{'full_article': full_article})
-    else:
-        return redirect('/')
+@login_required
+def full_article(request, pk):
+    full_article = get_object_or_404(ArticlePost, id=pk, user=request.user)
+    return render(request, 'full-article.html', {'full_article': full_article})

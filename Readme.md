@@ -25,44 +25,26 @@ Video Summarizer is a Django web application that allows users to enter YouTube 
 - AssemblyAI (Speech-to-Text API)
 - Gemini (Text Summarization API)
 - HTML, CSS, JavaScript (Front-end)
-- PostgreSQL (Database hosted on fl0.com)
+- SQLite locally, or PostgreSQL via `DATABASE_URL`
 
 ## Installation
 
-1. Clone the repository:
-
 ```
-git clone https://github.com/your-username/video-summarizer.git
-```
-
-2. Navigate to the project directory:
-
-```
-cd video-summarizer
-```
-
-3. Create a virtual environment and activate it:
-
-```
+git clone https://github.com/eshanpandey/Video_Summarizer.git
+cd Video_Summarizer/backend/ai_transcriber_app
 python -m venv env
 source env/bin/activate  # On Windows, use `env\Scripts\activate`
-```
-
-4. Install the required dependencies:
-
-```
 pip install -r requirements.txt
-```
-
-5. Set up the necessary environment variables for AssemblyAI and Gemini API keys, as well as the PostgreSQL database connection details (hosted on fl0.com).
-
-6. Run the Django development server:
-
-```
+cp .env.example .env     # then add your GEMINI_API_KEY (and optionally ASSEMBLYAI_API_KEY)
+python manage.py migrate
 python manage.py runserver
 ```
 
-7. Open your web browser and navigate to `http://localhost:8000` to access the Video Summarizer app.
+Open `http://localhost:8000`. With no `DATABASE_URL` set the app uses a local SQLite file; set `DATABASE_URL` to use Postgres.
+
+Transcripts come from the video's YouTube captions when available. Videos without captions are downloaded with yt-dlp and transcribed with AssemblyAI, which needs `ASSEMBLYAI_API_KEY`.
+
+Run the tests with `python manage.py test`.
 
 ## Usage
 
