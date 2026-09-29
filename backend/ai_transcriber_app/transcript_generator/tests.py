@@ -86,6 +86,30 @@ class GenerateNotesTests(TestCase):
         self.assertIn('GEMINI_API_KEY', str(ctx.exception))
 
 
+class YouTubeAccessTests(TestCase):
+    link = 'https://youtu.be/dQw4w9WgXcQ'
+
+    @mock.patch('urllib.request.urlopen')
+    def test_title_from_oembed(self, urlopen):
+        urlopen.return_value.__enter__.return_value = mock.Mock(read=lambda *a: b'{"title": "Never"}')
+        self.assertEqual(services.get_video_title(self.link), 'Never')
+        self.assertIn('oembed', urlopen.call_args[0][0])
+
+    @override_settings(YOUTUBE_PROXY_URL='http://proxy:8080')
+    @mock.patch('yt_dlp.YoutubeDL')
+    @mock.patch('urllib.request.urlopen', side_effect=OSError('blocked'))
+    def test_title_falls_back_to_ytdlp_through_proxy(self, urlopen, ytdl):
+        ytdl.return_value.__enter__.return_value.extract_info.return_value = {'title': 'From yt-dlp'}
+        self.assertEqual(services.get_video_title(self.link), 'From yt-dlp')
+        self.assertEqual(ytdl.call_args[0][0]['proxy'], 'http://proxy:8080')
+
+    @override_settings(YOUTUBE_PROXY_URL='http://proxy:8080')
+    @mock.patch('youtube_transcript_api.YouTubeTranscriptApi')
+    def test_captions_use_proxy(self, api):
+        services.get_caption_transcript('dQw4w9WgXcQ')
+        self.assertEqual(api.call_args.kwargs['proxy_config'].https_url, 'http://proxy:8080')
+
+
 class GetTranscriptTests(TestCase):
     @mock.patch.object(services, 'get_audio_transcript')
     @mock.patch.object(services, 'get_caption_transcript', return_value='caption text')

@@ -22,6 +22,8 @@ services:
         sync: false
       - key: ASSEMBLYAI_API_KEY
         sync: false
+      - key: YOUTUBE_PROXY_URL
+        sync: false
 
 databases:
   - name: video-summarizer-db

@@ -44,6 +44,7 @@ CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS if h not in ('loca
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = os.getenv('DJANGO_SECURE_SSL_REDIRECT', 'true').lower() in ('1', 'true', 'yes')
+    SECURE_REDIRECT_EXEMPT = [r'^healthz$']  # platform health checks call over plain HTTP
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_HSTS_SECONDS', '0'))
@@ -161,6 +162,8 @@ LOGIN_URL = 'login'
 ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY', '')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+# YouTube often blocks caption and audio requests from cloud hosts; route them through this proxy.
+YOUTUBE_PROXY_URL = os.getenv('YOUTUBE_PROXY_URL', '')
 
 # Background summarize jobs (see transcript_generator/jobs.py)
 JOB_WORKERS = int(os.getenv('JOB_WORKERS', '2'))

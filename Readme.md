@@ -60,6 +60,7 @@ Run the tests with `python manage.py test`.
 | `DJANGO_SECRET_KEY` | dev-only key | Required when `DJANGO_DEBUG=false` |
 | `DJANGO_DEBUG` | `true` | Set `false` in production |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames |
+| `YOUTUBE_PROXY_URL` | empty | Proxy for YouTube requests; set it if YouTube blocks your server |
 | `JOB_WORKERS` | `2` | Videos processed at the same time |
 | `SUMMARIES_PER_DAY` | `20` | New videos per user per 24 hours (0 = unlimited; staff are exempt) |
 | `QUESTIONS_PER_DAY` | `50` | Questions per user per 24 hours (0 = unlimited) |
@@ -70,6 +71,8 @@ Run the tests with `python manage.py test`.
 **Docker:** `docker compose up --build` from `backend/ai_transcriber_app` runs the app with Postgres on http://localhost:8000 (put your API keys in `.env` first).
 
 **Render (one click):** the repo includes a `render.yaml` Blueprint. On render.com choose New > Blueprint, pick this repository, and enter `GEMINI_API_KEY` when prompted. It creates the web service and a Postgres database.
+
+YouTube often blocks caption and audio requests from cloud servers like Render's. If summaries fail with "no captions" or "couldn't download the audio" in production but work locally, set `YOUTUBE_PROXY_URL` to a residential proxy.
 
 Summaries run in a thread pool inside the web process, so the Docker image runs a single Gunicorn worker with several threads. A job interrupted by a restart is marked failed and can be retried from its page.
 
